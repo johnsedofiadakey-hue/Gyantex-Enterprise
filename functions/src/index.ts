@@ -57,15 +57,41 @@ async function sendArkeselSMS(phone: string, message: string) {
  * This locks inventory temporarily and returns a Paystack initialization URL/reference.
  */
 export const initializeCheckout = functions.https.onCall(async (data, context) => {
-  const { customer, items, deliveryZone, totalAmount } = data;
+  const { customer, items, deliveryZone } = data;
   
   if (!items || !items.length) {
     throw new functions.https.HttpsError('invalid-argument', 'Cart is empty');
   }
 
-  // NOTE: In a production app, we would recalculate the `totalAmount` server-side 
-  // by fetching product prices from Firestore to prevent tampering.
-  // We'll skip the exhaustive check here for scaffolding brevity.
+  let serverCalculatedSubtotal = 0;
+
+  // Recalculate the totalAmount server-side by fetching product prices
+  for (const item of items) {
+    const productSnap = await db.collection('products').doc(item.productId).get();
+    if (!productSnap.exists) {
+      throw new functions.https.HttpsError('not-found', `Product ${item.productId} not found`);
+    }
+    
+    const productData = productSnap.data();
+    if (!productData) continue;
+    
+    // Assuming productData.price is the price for a FULL piece. 
+    // Half piece is half the price.
+    let itemPrice = productData.price || 0;
+    if (item.purchaseType === 'half') {
+      itemPrice = itemPrice / 2;
+    }
+    
+    serverCalculatedSubtotal += (itemPrice * item.quantity);
+  }
+
+  // Calculate delivery
+  let deliveryFee = 0;
+  if (deliveryZone === 'accra_central') deliveryFee = 30;
+  if (deliveryZone === 'outside_accra') deliveryFee = 50;
+  if (deliveryZone === 'pickup') deliveryFee = 0;
+
+  const secureTotalAmount = serverCalculatedSubtotal + deliveryFee;
 
   // A. Create Pending Order
   const orderRef = db.collection('orders').doc();
@@ -76,7 +102,9 @@ export const initializeCheckout = functions.https.onCall(async (data, context) =
     customer,
     items,
     deliveryZone,
-    totalAmount,
+    deliveryFee,
+    subtotal: serverCalculatedSubtotal,
+    totalAmount: secureTotalAmount,
     status: 'pending_payment',
     fulfillmentStatus: 'pending',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -84,8 +112,7 @@ export const initializeCheckout = functions.https.onCall(async (data, context) =
 
   await orderRef.set(orderData);
 
-  // B. Reserve Inventory (Convert Full to 2 Half-Piece Units)
-  // We should run a transaction to check stock and decrement, but for scaffolding we'll skip the atomic lock logic.
+  // B. Reserve Inventory (Skipped atomic locking for scaffolding brevity)
   
   // C. Initialize Paystack Transaction
   const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
@@ -95,7 +122,8 @@ export const initializeCheckout = functions.https.onCall(async (data, context) =
     return {
       reference: `mock_ref_${orderId}`,
       authorization_url: 'https://checkout.paystack.com/mock',
-      orderId
+      orderId,
+      totalAmount: secureTotalAmount
     };
   }
 
@@ -104,8 +132,8 @@ export const initializeCheckout = functions.https.onCall(async (data, context) =
       'https://api.paystack.co/transaction/initialize',
       {
         email: customer.email || 'guest@blessedclothing.com',
-        amount: Math.round(totalAmount * 100), // Paystack uses pesewas/kobo
-        reference: orderId, // use Order ID as reference to link webhook easily
+        amount: Math.round(secureTotalAmount * 100), // Paystack uses pesewas/kobo
+        reference: orderId, 
         metadata: {
           custom_fields: [
             { display_name: "Customer Name", variable_name: "name", value: `${customer.firstName} ${customer.lastName}` },
@@ -124,7 +152,8 @@ export const initializeCheckout = functions.https.onCall(async (data, context) =
     return {
       reference: orderId,
       authorization_url: response.data.data.authorization_url,
-      orderId
+      orderId,
+      totalAmount: secureTotalAmount
     };
   } catch (error) {
     console.error("Paystack Init Error", error);

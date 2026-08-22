@@ -1,22 +1,90 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Heart, Search, User, ShoppingBag, ArrowLeft, Minus, Plus, ShieldCheck, Truck, RefreshCcw, Lock } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { useCartStore } from "@/store/useCartStore";
 
 export default function ProductDetail() {
   const params = useParams();
+  const router = useRouter();
+  const cart = useCartStore();
+  const cartTotal = cart.totalItems();
+  
+  const [product, setProduct] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [quantity, setQuantity] = useState(1);
   const [selectedColor, setSelectedColor] = useState(0);
 
-  const colors = [
-    { name: "Olive Green", hex: "#5F6F52" },
-    { name: "Charcoal", hex: "#171717" },
-    { name: "Terracotta", hex: "#D95D39" },
-    { name: "Navy Blue", hex: "#1D2B53" }
-  ];
+  useEffect(() => {
+    async function fetchProduct() {
+      if (!params.slug) return;
+      try {
+        const docRef = doc(db, "products", params.slug as string);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          setProduct({ id: docSnap.id, ...docSnap.data() });
+        } else {
+          // Dummy fallback for preview purposes
+          setProduct({
+            id: params.slug,
+            name: "Adire Cotton Fabric",
+            price: 95.00,
+            unit: "Yard",
+            imageUrl: "/api/placeholder/800/1000",
+            colors: ["#5F6F52", "#171717", "#D95D39", "#1D2B53"]
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchProduct();
+  }, [params.slug]);
+
+  const handleAddToCart = () => {
+    if (!product) return;
+    
+    cart.addItem({
+      id: Math.random().toString(),
+      productId: product.id,
+      name: product.name,
+      price: purchaseType === 'half' ? product.price / 2 : product.price,
+      image: product.imageUrl,
+      color: product.colors?.[selectedColor] || "Standard",
+      purchaseType,
+      quantity
+    });
+    alert("Added to cart!");
+  };
+
+  const handleBuyNow = () => {
+    if (!product) return;
+    
+    // Add to cart and immediately bypass to checkout
+    cart.addItem({
+      id: Math.random().toString(),
+      productId: product.id,
+      name: product.name,
+      price: purchaseType === 'half' ? product.price / 2 : product.price,
+      image: product.imageUrl,
+      color: product.colors?.[selectedColor] || "Standard",
+      purchaseType,
+      quantity
+    });
+    router.push('/checkout');
+  };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (!product) return <div className="min-h-screen flex items-center justify-center">Product not found.</div>;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -31,10 +99,14 @@ export default function ProductDetail() {
           <span className="text-[9px] md:text-[10px] tracking-widest text-charcoal uppercase">Clothing</span>
         </Link>
         <div className="flex items-center gap-5">
-          <button className="text-charcoal hover:text-olive transition-colors relative">
+          <Link href="/cart" className="text-charcoal hover:text-olive transition-colors relative">
             <ShoppingBag size={20} />
-            <span className="absolute -top-1.5 -right-1.5 bg-olive text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">0</span>
-          </button>
+            {cartTotal > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-olive text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {cartTotal}
+              </span>
+            )}
+          </Link>
         </div>
       </header>
 
@@ -44,48 +116,42 @@ export default function ProductDetail() {
           {/* Left: Image Gallery */}
           <div className="w-full lg:w-3/5 space-y-4">
             <div className="relative aspect-[4/5] md:aspect-square bg-soft-grey rounded-lg overflow-hidden">
-              <img src="/api/placeholder/800/1000" alt="Product Image" className="object-cover w-full h-full" />
+              <img src={product.imageUrl || "/api/placeholder/800/1000"} alt={product.name} className="object-cover w-full h-full" />
               <button className="absolute top-4 right-4 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-md hover:text-olive transition-colors">
                 <Heart size={20} />
               </button>
-            </div>
-            {/* Thumbnails */}
-            <div className="grid grid-cols-4 gap-4">
-              {[1, 2, 3, 4].map((i) => (
-                <button key={i} className={`aspect-square bg-soft-grey rounded-md overflow-hidden border-2 ${i === 1 ? 'border-olive' : 'border-transparent'}`}>
-                  <img src={`/api/placeholder/200/200?text=Thumb+${i}`} alt={`Thumbnail ${i}`} className="object-cover w-full h-full" />
-                </button>
-              ))}
             </div>
           </div>
 
           {/* Right: Product Info */}
           <div className="w-full lg:w-2/5 flex flex-col">
-            <h1 className="font-serif text-3xl md:text-4xl font-semibold mb-2">Adire Cotton Fabric</h1>
+            <h1 className="font-serif text-3xl md:text-4xl font-semibold mb-2">{product.name}</h1>
             <div className="flex items-end gap-3 mb-6">
-              <span className="text-2xl font-bold">GHS 95.00</span>
-              <span className="text-charcoal/60 mb-1">/ Yard</span>
+              <span className="text-2xl font-bold">GHS {product.price?.toFixed(2)}</span>
+              {product.unit && <span className="text-charcoal/60 mb-1">/ {product.unit}</span>}
             </div>
 
             {/* Color Selection */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-3">
-                <span className="font-medium">Color: <span className="text-charcoal/60 font-normal">{colors[selectedColor].name}</span></span>
+            {product.colors && product.colors.length > 0 && (
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="font-medium">Color Option</span>
+                </div>
+                <div className="flex gap-3">
+                  {product.colors.map((hex: string, idx: number) => (
+                    <button 
+                      key={idx}
+                      onClick={() => setSelectedColor(idx)}
+                      className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+                        selectedColor === idx ? 'border-olive p-0.5' : 'border-transparent'
+                      }`}
+                    >
+                      <span className="w-full h-full rounded-full border border-charcoal/10" style={{ backgroundColor: hex }}></span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-3">
-                {colors.map((color, idx) => (
-                  <button 
-                    key={idx}
-                    onClick={() => setSelectedColor(idx)}
-                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
-                      selectedColor === idx ? 'border-olive p-0.5' : 'border-transparent'
-                    }`}
-                  >
-                    <span className="w-full h-full rounded-full border border-charcoal/10" style={{ backgroundColor: color.hex }}></span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
 
             {/* Purchase Type */}
             <div className="mb-6">
@@ -112,7 +178,7 @@ export default function ProductDetail() {
 
             {/* Quantity */}
             <div className="mb-8">
-              <span className="font-medium block mb-3">Quantity (Yards)</span>
+              <span className="font-medium block mb-3">Quantity</span>
               <div className="flex items-center gap-6">
                 <div className="flex items-center border border-charcoal/20 rounded-md">
                   <button 
@@ -135,10 +201,10 @@ export default function ProductDetail() {
 
             {/* Actions */}
             <div className="space-y-3 mb-10">
-              <button className="w-full py-4 bg-olive text-white rounded-md font-semibold hover:bg-olive/90 transition-colors">
+              <button onClick={handleAddToCart} className="w-full py-4 bg-olive text-white rounded-md font-semibold hover:bg-olive/90 transition-colors">
                 Add to Cart
               </button>
-              <button className="w-full py-4 bg-white text-charcoal border-2 border-charcoal rounded-md font-semibold hover:bg-soft-grey transition-colors">
+              <button onClick={handleBuyNow} className="w-full py-4 bg-white text-charcoal border-2 border-charcoal rounded-md font-semibold hover:bg-soft-grey transition-colors">
                 Buy Now
               </button>
             </div>

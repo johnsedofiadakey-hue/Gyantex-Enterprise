@@ -1,10 +1,12 @@
 "use client";
 
 import { useCartStore } from "@/store/useCartStore";
-import { ArrowLeft, CheckCircle2, Lock } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { functions } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -37,13 +39,56 @@ export default function CheckoutPage() {
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessing(true);
-    // Simulate network request for payment initialization
-    setTimeout(() => {
-      alert("Payment Gateway (Paystack/Flutterwave) will open here.");
+    
+    try {
+      const form = e.target as HTMLFormElement;
+      const customer = {
+        firstName: (form.elements.namedItem('firstName') as HTMLInputElement).value,
+        lastName: (form.elements.namedItem('lastName') as HTMLInputElement).value,
+        phone: (form.elements.namedItem('phone') as HTMLInputElement).value,
+        email: (form.elements.namedItem('email') as HTMLInputElement).value,
+      };
+
+      const initializeCheckoutFn = httpsCallable(functions, 'initializeCheckout');
+      
+      const result = await initializeCheckoutFn({
+        customer,
+        items: cart.items,
+        deliveryZone,
+      });
+
+      const data = result.data as any;
+      if (data && data.authorization_url) {
+        // Redirect to Paystack
+        window.location.href = data.authorization_url;
+      } else {
+        alert("Payment initialization failed. Please try again.");
+        setIsProcessing(false);
+      }
+
+    } catch (error) {
+      console.error(error);
+      alert("Error processing checkout. Please try again or use WhatsApp.");
       setIsProcessing(false);
-      // cart.clearCart();
-      // router.push("/order/success");
-    }, 1500);
+    }
+  };
+
+  const handleWhatsAppCheckout = () => {
+    const form = document.getElementById("checkout-form") as HTMLFormElement;
+    const name = form ? (form.elements.namedItem('firstName') as HTMLInputElement)?.value : "Customer";
+    
+    let text = `Hi BLESSED Clothing,\n\nI would like to place an order:\n\n`;
+    cart.items.forEach(item => {
+      text += `- ${item.quantity}x ${item.name} (${item.color}, ${item.purchaseType === 'full' ? 'Full Piece' : 'Half Piece'}) = GHS ${item.price * item.quantity}\n`;
+    });
+    
+    text += `\nDelivery: ${deliveryZone.replace('_', ' ')}\n`;
+    text += `Total: GHS ${total.toFixed(2)}\n\n`;
+    text += `My Name: ${name || 'Customer'}\n`;
+    
+    const encodedText = encodeURIComponent(text);
+    // Use your actual WhatsApp business number here
+    window.open(`https://wa.me/233241234567?text=${encodedText}`, '_blank');
   };
 
   return (
@@ -74,19 +119,19 @@ export default function CheckoutPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1.5">First Name *</label>
-                  <input required type="text" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="Kwadwo" />
+                  <input name="firstName" required type="text" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="Kwadwo" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Last Name *</label>
-                  <input required type="text" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="Effah" />
+                  <input name="lastName" required type="text" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="Effah" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-1.5">Phone Number *</label>
-                  <input required type="tel" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="024 123 4567" />
+                  <input name="phone" required type="tel" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="024 123 4567" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium mb-1.5">Email Address</label>
-                  <input type="email" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="kwadwo@example.com" />
+                  <input name="email" type="email" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="kwadwo@example.com" />
                 </div>
               </div>
             </section>
@@ -126,11 +171,11 @@ export default function CheckoutPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1.5">Address / Landmark *</label>
-                    <input required type="text" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="123 Example Street, near the Blue Kiosk" />
+                    <input name="address" required type="text" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none" placeholder="123 Example Street, near the Blue Kiosk" />
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1.5">Delivery Notes (Optional)</label>
-                    <textarea className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none resize-none h-24" placeholder="Any special instructions for the rider..."></textarea>
+                    <textarea name="notes" className="w-full p-3 rounded-md border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none resize-none h-24" placeholder="Any special instructions for the rider..."></textarea>
                   </div>
                 </div>
               )}
@@ -178,14 +223,24 @@ export default function CheckoutPage() {
               <span className="font-bold text-xl">GHS {total.toFixed(2)}</span>
             </div>
             
-            <button 
-              type="submit" 
-              form="checkout-form"
-              disabled={isProcessing}
-              className="w-full bg-olive text-white py-4 rounded-md font-semibold hover:bg-olive/90 transition-colors flex justify-center items-center gap-2 disabled:opacity-70"
-            >
-              {isProcessing ? "Initializing Payment..." : `Pay GHS ${total.toFixed(2)}`}
-            </button>
+            <div className="space-y-3">
+              <button 
+                type="submit" 
+                form="checkout-form"
+                disabled={isProcessing}
+                className="w-full bg-olive text-white py-4 rounded-md font-semibold hover:bg-olive/90 transition-colors flex justify-center items-center gap-2 disabled:opacity-70"
+              >
+                {isProcessing ? "Initializing Payment..." : `Pay GHS ${total.toFixed(2)}`}
+              </button>
+              
+              <button 
+                type="button" 
+                onClick={handleWhatsAppCheckout}
+                className="w-full bg-[#25D366] text-white py-4 rounded-md font-semibold hover:bg-[#128C7E] transition-colors flex justify-center items-center gap-2"
+              >
+                <MessageCircle size={18} /> Complete Order via WhatsApp
+              </button>
+            </div>
             
             <div className="mt-4 flex items-center justify-center gap-2 text-xs text-charcoal/60">
               <Lock size={12} /> Payments processed securely via Paystack
