@@ -1,13 +1,23 @@
 @import "tailwindcss";
 
-@theme inline {
+@theme {
   --color-white: #FFFFFF;
   --color-soft-grey: #F5F5F3;
   --color-charcoal: #171717;
   --color-olive: #5F6F52;
   --color-sand: #D8C8B8;
   --color-terracotta: #D95D39;
-  
+
+  /* Kente-inspired accent palette — used sparingly for badges, highlights,
+     and motion accents so the storefront reads as alive, not flat. */
+  --color-gold: #E3A93B;
+  --color-teal: #1E7A72;
+  --color-clay: #C1432B;
+
+  /* Plain (non-inline) so these compile to var()-referencing utilities —
+     required for BrandingProvider to swap fonts at runtime. See the color
+     tokens above: `@theme inline` bakes literal values into each utility
+     class at build time instead. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-poppins), ui-serif, Georgia, serif;
 }
@@ -26,4 +36,111 @@ body {
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes drawer-right-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes proof-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-10px) rotate(1deg); }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+.motion-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 520ms ease,
+    transform 520ms ease;
+}
+
+.motion-reveal-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hero-proof {
+  animation: proof-float 7s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(227, 169, 59, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(227, 169, 59, 0); }
+}
+
+.badge-pulse {
+  animation: badge-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes sheen {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.bg-sheen {
+  background-image: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 65%
+  );
+  background-size: 220% 100%;
+  animation: sheen 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .motion-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.prose-content h2 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 1.15rem;
+  color: var(--color-charcoal);
+  margin-top: 1.5rem;
+}
+.prose-content ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.5rem;
+}
+.prose-content li {
+  margin-bottom: 0.4rem;
+}
+.prose-content p a,
+.prose-content li a {
+  color: var(--color-olive);
+  text-decoration: underline;
 }

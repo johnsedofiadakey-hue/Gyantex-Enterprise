@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Cloud Functions is a separate Node.js package with its own build/tsc —
+    // not part of this Next.js app's lint surface.
+    "functions/**",
+    // Firebase CLI's local deploy staging area (bundled SSR function output,
+    // including vendored node_modules) — not source, never lint it.
+    ".firebase/**",
   ]),
 ]);
 

@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+functions/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -9,6 +10,14 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+
+# firebase functions build output
+functions/lib
+
+# firebase local state / debug logs
+.firebase
+firebase-debug.log
+firebase-debug.*.log
 
 # testing
 /coverage
@@ -30,8 +39,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (.env.example files are intentionally kept — they're templates, not secrets)
 .env*
+!.env.example
+!functions/.env.example
 
 # vercel
 .vercel

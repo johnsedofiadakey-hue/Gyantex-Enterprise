@@ -1,0 +1,11 @@
+<svg width="400" height="500" viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Image coming soon">
+  <rect width="400" height="500" fill="#F5F5F3"/>
+  <g stroke="#D8C8B8" stroke-width="1.5">
+    <line x1="0" y1="0" x2="400" y2="500"/>
+    <line x1="400" y1="0" x2="0" y2="500"/>
+  </g>
+  <rect x="140" y="210" width="120" height="90" rx="6" fill="#F5F5F3" stroke="#5F6F52" stroke-width="2"/>
+  <circle cx="167" cy="238" r="10" fill="#5F6F52"/>
+  <path d="M148 288 L184 250 L210 276 L228 258 L252 288 Z" fill="#5F6F52"/>
+  <text x="200" y="335" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="13" fill="#171717" text-anchor="middle" letter-spacing="0.5">Photo coming soon</text>
+</svg>

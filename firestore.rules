@@ -1,35 +1,67 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Admin check function
-    function isAdmin() {
-      return request.auth != null && request.auth.token.admin == true;
+
+    // Owner: full access. Staff: register (POS) + view orders only.
+    // `token.admin == true` is the legacy claim from before roles existed —
+    // kept permanently as a safety net so the original account can never be
+    // locked out by a claims-refresh glitch.
+    function isOwner() {
+      return request.auth != null && (request.auth.token.role == 'owner' || request.auth.token.admin == true);
+    }
+    function isStaff() {
+      return isOwner() || (request.auth != null && request.auth.token.role == 'staff');
     }
 
-    // Products & Categories (Public read, Admin write)
+    // Products & Categories (Public read, Owner write)
     match /products/{productId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isOwner();
     }
-    
+
     match /categories/{categoryId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isOwner();
     }
 
-    // Orders (Customer can create, Admin can read/write)
-    // Note: In a guest checkout, creating an order might be done via Cloud Functions to ensure payment/stock validity.
-    // If done via client, rules need to restrict modification. Let's force creation via Cloud Function for security.
+    match /deliveryZones/{zoneId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    // Site-wide config docs (e.g. settings/branding for the admin-set
+    // primary/secondary/accent colors) — public read since the storefront
+    // itself needs these on every visit, owner-only write.
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    // Staff directory — display/management convenience only. All writes go
+    // through the inviteStaff/updateStaffRole/setStaffStatus Cloud Functions
+    // (Admin SDK, bypasses rules) — client writes are always rejected here
+    // as defense in depth.
+    match /staff/{uid} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
+    // Orders — Staff can view (POS + fulfillment queue), only Owner can
+    // change fulfillment status. Creation always goes through a Cloud
+    // Function (initializeCheckout or recordPosSale) for price/stock
+    // integrity, never a direct client write.
     match /orders/{orderId} {
-      allow read, write: if isAdmin();
+      allow read: if isStaff();
+      allow update: if isOwner();
+      allow create, delete: if false;
     }
 
-    // Inventory constraints
+    // Inventory constraints (vestigial — real stock lives on
+    // products.stockUnits/reservedUnits; nothing reads/writes this today)
     match /inventory/{productId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isOwner();
     }
-    
+
   }
 }
