@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+  verifyBeforeUpdateEmail,
+  type User,
+} from "firebase/auth";
 import { RotateCcw } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAdminRole } from "@/hooks/useAdminRole";
@@ -24,6 +31,149 @@ import {
   SUPPORT_EMAIL,
   WHATSAPP_NUMBER,
 } from "@/lib/config";
+
+function authErrorMessage(error: unknown, fallback: string): string {
+  const code = (error as { code?: string })?.code;
+  switch (code) {
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "Current password is incorrect.";
+    case "auth/email-already-in-use":
+      return "That email is already in use by another account.";
+    case "auth/invalid-email":
+      return "Enter a valid email address.";
+    case "auth/weak-password":
+      return "Password must be at least 6 characters.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a moment and try again.";
+    default:
+      return fallback;
+  }
+}
+
+function ChangeEmailForm({ user }: { user: User }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const toast = useToastStore((state) => state.show);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user.email) return;
+    setSubmitting(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await verifyBeforeUpdateEmail(user, newEmail);
+      toast(`Verification link sent to ${newEmail}. Your sign-in email changes once you confirm it.`, "success");
+      setCurrentPassword("");
+      setNewEmail("");
+    } catch (error) {
+      toast(authErrorMessage(error, "Couldn't update email. Please try again."), "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <h4 className="text-sm font-medium">Change Email</h4>
+      <input
+        type="email"
+        required
+        value={newEmail}
+        onChange={(e) => setNewEmail(e.target.value)}
+        placeholder="New email address"
+        className="w-full rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+      />
+      <input
+        type="password"
+        required
+        value={currentPassword}
+        onChange={(e) => setCurrentPassword(e.target.value)}
+        placeholder="Current password"
+        className="w-full rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+      />
+      <button
+        type="submit"
+        disabled={submitting}
+        className="rounded-md bg-charcoal px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-charcoal/85 disabled:opacity-70"
+      >
+        {submitting ? "Sending..." : "Send verification link"}
+      </button>
+    </form>
+  );
+}
+
+function ChangePasswordForm({ user }: { user: User }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const toast = useToastStore((state) => state.show);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user.email) return;
+    if (newPassword !== confirmPassword) {
+      toast("New passwords don't match.", "error");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPassword);
+      toast("Password updated.", "success");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      toast(authErrorMessage(error, "Couldn't update password. Please try again."), "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <h4 className="text-sm font-medium">Change Password</h4>
+      <input
+        type="password"
+        required
+        value={currentPassword}
+        onChange={(e) => setCurrentPassword(e.target.value)}
+        placeholder="Current password"
+        className="w-full rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+      />
+      <input
+        type="password"
+        required
+        minLength={6}
+        value={newPassword}
+        onChange={(e) => setNewPassword(e.target.value)}
+        placeholder="New password"
+        className="w-full rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+      />
+      <input
+        type="password"
+        required
+        minLength={6}
+        value={confirmPassword}
+        onChange={(e) => setConfirmPassword(e.target.value)}
+        placeholder="Confirm new password"
+        className="w-full rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+      />
+      <button
+        type="submit"
+        disabled={submitting}
+        className="rounded-md bg-charcoal px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-charcoal/85 disabled:opacity-70"
+      >
+        {submitting ? "Updating..." : "Update password"}
+      </button>
+    </form>
+  );
+}
 
 function BrandingSection() {
   const [colors, setColors] = useState<BrandColors>(DEFAULT_BRAND_COLORS);
@@ -180,6 +330,13 @@ export default function AdminSettingsPage() {
         <p className="mt-4 text-xs leading-5 text-charcoal/50">
           To give another team member access, use <span className="font-medium text-charcoal">Admin → Staff</span> to invite them — no scripts needed.
         </p>
+
+        {user && (
+          <div className="mt-6 grid gap-6 border-t border-charcoal/10 pt-6 sm:grid-cols-2">
+            <ChangeEmailForm user={user} />
+            <ChangePasswordForm user={user} />
+          </div>
+        )}
       </section>
 
       <section className="bg-white p-6 shadow-sm">
