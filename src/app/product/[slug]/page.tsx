@@ -8,10 +8,13 @@ import {
 import {
   getDefaultProduct,
   getPriceLabel,
+  isQuoteProduct,
   normalizeCatalogProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
 import ProductDetailClient from "./ProductDetailClient";
+
+const SITE_URL = "https://gyantexenterpr1se.web.app";
 
 async function getProduct(slug: string): Promise<CatalogProduct | null> {
   try {
@@ -41,13 +44,24 @@ export async function generateMetadata({
     };
   }
 
+  const title = `${product.name} | ${BUSINESS_NAME}`;
+
   return {
-    title: `${product.name} | ${BUSINESS_NAME}`,
+    title,
     description: `${product.description} Pricing: ${getPriceLabel(product)}.`,
+    alternates: {
+      canonical: `/product/${product.id}`,
+    },
     openGraph: {
-      title: `${product.name} | ${BUSINESS_NAME}`,
+      title,
       description: product.description,
       images: product.imageUrl ? [{ url: product.imageUrl }] : undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description: product.description,
+      images: product.imageUrl ? [product.imageUrl] : undefined,
     },
   };
 }
@@ -60,5 +74,44 @@ export default async function ProductPage({
   const { slug } = await params;
   const product = await getProduct(slug);
 
-  return <ProductDetailClient initialProduct={product} />;
+  if (!product) {
+    return <ProductDetailClient initialProduct={product} />;
+  }
+
+  const absoluteImageUrl = product.imageUrl
+    ? product.imageUrl.startsWith("http")
+      ? product.imageUrl
+      : `${SITE_URL}${product.imageUrl}`
+    : undefined;
+
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    description: product.description,
+    image: absoluteImageUrl ? [absoluteImageUrl] : undefined,
+    category: product.category,
+    url: `${SITE_URL}/product/${product.id}`,
+    ...(isQuoteProduct(product)
+      ? {}
+      : {
+          offers: {
+            "@type": "Offer",
+            url: `${SITE_URL}/product/${product.id}`,
+            priceCurrency: "GHS",
+            price: product.price,
+            availability: "https://schema.org/InStock",
+          },
+        }),
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      <ProductDetailClient initialProduct={product} />
+    </>
+  );
 }

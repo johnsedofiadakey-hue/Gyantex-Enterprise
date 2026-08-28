@@ -12,6 +12,13 @@ import {
 import "./globals.css";
 import ToastViewport from "@/components/ToastViewport";
 import BrandingProvider from "@/components/BrandingProvider";
+import {
+  BUSINESS_NAME,
+  BUSINESS_TAGLINE,
+  INSTAGRAM_HANDLE,
+  SUPPORT_EMAIL,
+  WHATSAPP_NUMBER,
+} from "@/lib/config";
 
 // Every curated font pairing (src/lib/branding.ts's BRAND_FONT_OPTIONS) is
 // preloaded here so BrandingProvider can switch between them instantly at
@@ -30,17 +37,47 @@ const FONT_VARIABLES = [inter, poppins, lato, playfairDisplay, workSans, spaceGr
   .map((font) => font.variable)
   .join(" ");
 
+const SITE_URL = "https://gyantexenterpr1se.web.app";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://gyantexenterpr1se.web.app"),
+  metadataBase: new URL(SITE_URL),
   title: "Gyantex Enterprise | Custom Textile Design & Printing",
   description: "Design and print custom textile cloth for funerals, churches, schools, institutions, and events in Kumasi.",
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: "Gyantex Enterprise",
     description: "Custom textile design and printing for funerals, churches, schools, institutions, and events in Kumasi.",
-    url: "https://gyantexenterpr1se.web.app",
+    url: SITE_URL,
     siteName: "Gyantex Enterprise",
     type: "website",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Gyantex Enterprise",
+    description: "Custom textile design and printing for funerals, churches, schools, institutions, and events in Kumasi.",
+  },
+};
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "Store",
+  "@id": `${SITE_URL}/#business`,
+  name: BUSINESS_NAME,
+  description: BUSINESS_TAGLINE,
+  image: `${SITE_URL}/images/gyantex-business-profile.jpg`,
+  url: SITE_URL,
+  telephone: `+${WHATSAPP_NUMBER}`,
+  email: SUPPORT_EMAIL,
+  priceRange: "GHS",
+  address: {
+    "@type": "PostalAddress",
+    streetAddress: "Kejetia Gate 11, Shop No. F-1472",
+    addressLocality: "Kumasi",
+    addressCountry: "GH",
+  },
+  sameAs: [`https://www.instagram.com/${INSTAGRAM_HANDLE.replace(/^@/, "")}`],
 };
 
 export default function RootLayout({
@@ -54,6 +91,10 @@ export default function RootLayout({
       className={`${FONT_VARIABLES} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans text-charcoal bg-white">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
         <BrandingProvider />
         {children}
         <ToastViewport />
