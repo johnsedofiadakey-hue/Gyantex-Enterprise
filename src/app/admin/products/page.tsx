@@ -20,6 +20,7 @@ import {
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
+  getSwatchStyle,
   normalizeCategory,
   type Category,
   type ProductColorOption,
@@ -62,10 +63,13 @@ interface OptionGroupDraft {
 }
 
 /** Editable form shape for a color — `image` holds an already-uploaded URL;
- * a newly-chosen photo lives separately in `colorImageFiles` until save. */
+ * a newly-chosen photo lives separately in `colorImageFiles` until save.
+ * `hex2` is optional — set it for a combo cloth (e.g. "Red & Black") to show
+ * a split swatch instead of one solid color. */
 interface ColorDraft {
   name: string;
   hex: string;
+  hex2?: string;
   image?: string;
 }
 
@@ -161,7 +165,7 @@ export default function AdminProductsPage() {
       tags: (product.tags || []).join(", "),
       minimumOrder: product.minimumOrder || "",
       turnaround: product.turnaround || "",
-      colorOptions: getProductColorOptions(product).map((color) => ({ name: color.name, hex: color.hex, image: color.image })),
+      colorOptions: getProductColorOptions(product).map((color) => ({ name: color.name, hex: color.hex, hex2: color.hex2, image: color.image })),
       optionGroups: (product.optionGroups || []).map((group) => ({
         label: group.label,
         values: group.values.map(getOptionValueLabel).join(", "),
@@ -211,6 +215,7 @@ export default function AdminProductsPage() {
         colorOptions.push({
           name: draft.name.trim() || draft.hex.trim(),
           hex: draft.hex.trim() || "#111111",
+          ...(draft.hex2?.trim() ? { hex2: draft.hex2.trim() } : {}),
           ...(image ? { image } : {}),
         });
       }
@@ -469,10 +474,17 @@ export default function AdminProductsPage() {
                 </div>
                 <p className="mb-2 text-xs text-charcoal/50">
                   Add a photo per color so picking it on the product page shows the cloth in that color, not just a swatch.
+                  For a combo cloth (e.g. "Red &amp; Black"), turn on Two-tone to show a split swatch instead of one solid color.
                 </p>
                 <div className="space-y-2">
                   {form.colorOptions.map((color, index) => (
                     <div key={index} className="flex flex-wrap items-center gap-2 rounded-md border border-charcoal/15 p-2.5">
+                      <span
+                        className="h-9 w-9 shrink-0 rounded-full border border-charcoal/10"
+                        style={getSwatchStyle(color)}
+                        aria-hidden="true"
+                        title="Preview"
+                      />
                       <input
                         type="color"
                         value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.hex) ? color.hex : "#111111"}
@@ -504,6 +516,33 @@ export default function AdminProductsPage() {
                         placeholder="Burgundy"
                         className="min-w-[110px] flex-1 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
                       />
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-charcoal/60">
+                        <input
+                          type="checkbox"
+                          checked={color.hex2 !== undefined}
+                          onChange={(event) => {
+                            const next = [...form.colorOptions];
+                            next[index] = { ...next[index], hex2: event.target.checked ? "#ffffff" : undefined };
+                            setForm({ ...form, colorOptions: next });
+                          }}
+                          className="accent-olive"
+                        />
+                        Two-tone
+                      </label>
+                      {color.hex2 !== undefined && (
+                        <input
+                          type="color"
+                          value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.hex2) ? color.hex2 : "#ffffff"}
+                          onChange={(event) => {
+                            const next = [...form.colorOptions];
+                            next[index] = { ...next[index], hex2: event.target.value };
+                            setForm({ ...form, colorOptions: next });
+                          }}
+                          className="h-9 w-9 shrink-0 cursor-pointer rounded border border-charcoal/20 p-0.5"
+                          aria-label="Pick second color"
+                          title="Second color"
+                        />
+                      )}
                       <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-dashed border-charcoal/30 px-2.5 py-2 text-xs hover:border-olive/50">
                         {colorImageFiles[index] ? (
                           <span className="max-w-[90px] truncate">{colorImageFiles[index].name}</span>

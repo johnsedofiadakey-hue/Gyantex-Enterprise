@@ -24,6 +24,7 @@ import {
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
+  getSwatchStyle,
   getSelectedOptionsPrice,
   isQuoteProduct,
   type CatalogProduct,
@@ -251,7 +252,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
                         selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
                       }`}
                     >
-                      <span className="block h-full w-full rounded-full border border-charcoal/10" style={{ backgroundColor: color.hex }} />
+                      <span className="block h-full w-full rounded-full border border-charcoal/10" style={getSwatchStyle(color)} />
                     </button>
                   ))}
                 </div>

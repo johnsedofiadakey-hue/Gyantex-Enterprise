@@ -12,6 +12,7 @@ import {
   getPriceLabel,
   getProductColorOptions,
   getSelectedOptionsPrice,
+  getSwatchStyle,
   isQuoteProduct,
   normalizeCatalogProduct,
 } from "@/lib/catalog";
@@ -441,7 +442,7 @@ function PosProductCard({
                     }`}
                     aria-label={`Select ${color.name}`}
                   >
-                    <span className="block h-full w-full rounded-full border border-charcoal/10" style={{ backgroundColor: color.hex }} />
+                    <span className="block h-full w-full rounded-full border border-charcoal/10" style={getSwatchStyle(color)} />
                   </button>
                 ))}
               </div>

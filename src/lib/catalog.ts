@@ -42,6 +42,15 @@ export function getSelectedOptionsPrice(
 
 /** Resolves a product's colors, falling back to the legacy hex/name arrays when
  * no structured colorOptions (with per-color photos) have been set yet. */
+/** Inline style for a color swatch — a solid circle, or a split circle when
+ * the option has a second color (e.g. a "Red & Black" combo cloth). */
+export function getSwatchStyle(color: Pick<ProductColorOption, "hex" | "hex2">): { backgroundColor: string } | { background: string } {
+  if (color.hex2) {
+    return { background: `conic-gradient(${color.hex} 0deg 180deg, ${color.hex2} 180deg 360deg)` };
+  }
+  return { backgroundColor: color.hex };
+}
+
 export function getProductColorOptions(
   product: Pick<CatalogProduct, "colorOptions" | "colors" | "colorNames">
 ): ProductColorOption[] {
@@ -51,10 +60,13 @@ export function getProductColorOptions(
   return colors.map((hex, index) => ({ hex, name: names[index] || hex }));
 }
 
-/** A color a customer can pick, with the actual photo of the cloth in that color. */
+/** A color a customer can pick, with the actual photo of the cloth in that color.
+ * `hex2` is optional — when set, the swatch renders as a split circle (e.g. a
+ * "Red & Black" combo cloth) instead of a single solid color. */
 export interface ProductColorOption {
   name: string;
   hex: string;
+  hex2?: string;
   image?: string;
 }
 

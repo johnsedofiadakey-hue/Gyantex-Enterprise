@@ -9,6 +9,7 @@ import {
   getPriceLabel,
   getProductColorOptions,
   getSelectedOptionsPrice,
+  getSwatchStyle,
   isQuoteProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
@@ -212,7 +213,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                           selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
                         }`}
                       >
-                        <span className="block h-full w-full rounded-full border border-charcoal/10" style={{ backgroundColor: color.hex }} />
+                        <span className="block h-full w-full rounded-full border border-charcoal/10" style={getSwatchStyle(color)} />
                       </button>
                     ))}
                   </div>
