@@ -87,20 +87,14 @@ const DEFAULT_COLOR_DRAFTS: ColorDraft[] = [
 
 const EMPTY_FORM = {
   name: "",
-  priceMode: "fixed" as "fixed" | "quote",
   price: "",
-  startingPriceLabel: "Price not set yet",
-  unit: "project",
   category: "Funeral Cloth",
   description: "",
   tags: "",
-  minimumOrder: "",
-  turnaround: "",
   colorOptions: DEFAULT_COLOR_DRAFTS,
   optionGroups: [] as OptionGroupDraft[],
   trackInventory: false,
   stockUnits: "",
-  badge: "",
   featured: false,
 };
 
@@ -161,15 +155,10 @@ export default function AdminProductsPage() {
     setEditing(product);
     setForm({
       name: product.name || "",
-      priceMode: product.priceMode || (product.price > 0 ? "fixed" : "quote"),
-      price: String(product.price ?? ""),
-      startingPriceLabel: product.startingPriceLabel || "Price not set yet",
-      unit: product.unit || "project",
+      price: product.price ? String(product.price) : "",
       category: normalizeCategory(product.category || "Funeral Cloth"),
       description: product.description || "",
       tags: (product.tags || []).join(", "),
-      minimumOrder: product.minimumOrder || "",
-      turnaround: product.turnaround || "",
       colorOptions: getProductColorOptions(product).map((color) => ({ name: color.name, hex: color.hex, hex2: color.hex2, image: color.image })),
       optionGroups: (product.optionGroups || []).map((group) => ({
         label: group.label,
@@ -178,9 +167,8 @@ export default function AdminProductsPage() {
           price: getOptionValuePrice(value) !== undefined ? String(getOptionValuePrice(value)) : "",
         })),
       })),
-      trackInventory: product.trackInventory !== false && product.priceMode !== "quote",
+      trackInventory: product.trackInventory !== false && (product.price || 0) > 0,
       stockUnits: String(product.stockUnits ?? ""),
-      badge: product.badge || "",
       featured: product.featured || false,
     });
     setImageFile(null);
@@ -192,10 +180,6 @@ export default function AdminProductsPage() {
     event.preventDefault();
     if (!form.name) {
       toast("Name is required.", "error");
-      return;
-    }
-    if (form.priceMode === "fixed" && !form.price) {
-      toast("Fixed-price products need a price.", "error");
       return;
     }
 
@@ -231,18 +215,20 @@ export default function AdminProductsPage() {
         imageUrl = await getDownloadURL(storageRef);
       }
 
-      const trackInventory = form.priceMode === "fixed" && form.trackInventory;
+      // A product with no price is a "quote" item — not payable online, shown
+      // as "Contact for pricing" instead of Add to Cart. Set a real price
+      // (here or per-value in Customer choices below) to make it purchasable.
+      const price = Number(form.price) || 0;
+      const isQuote = price <= 0;
+      const trackInventory = !isQuote && form.trackInventory;
       const payload = {
         name: form.name,
-        priceMode: form.priceMode,
-        price: form.priceMode === "quote" ? Number(form.price) || 0 : Number(form.price) || 0,
-        startingPriceLabel: form.priceMode === "quote" ? form.startingPriceLabel || "Price not set yet" : "",
-        unit: form.unit,
+        priceMode: isQuote ? "quote" : "fixed",
+        price,
+        startingPriceLabel: isQuote ? "Price not set yet" : "",
         category: form.category,
         description: form.description,
         tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-        minimumOrder: form.minimumOrder,
-        turnaround: form.turnaround,
         colorOptions,
         colors: colorOptions.map((c) => c.hex),
         colorNames: colorOptions.map((c) => c.name),
@@ -260,7 +246,6 @@ export default function AdminProductsPage() {
           .filter((group) => group.label && group.values.length > 0),
         trackInventory,
         stockUnits: trackInventory ? Number(form.stockUnits) || 0 : null,
-        badge: form.badge || null,
         featured: form.featured,
         imageUrl,
       };
@@ -396,18 +381,6 @@ export default function AdminProductsPage() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Pricing mode</label>
-                <select
-                  value={form.priceMode}
-                  onChange={(event) => setForm({ ...form, priceMode: event.target.value as "fixed" | "quote" })}
-                  className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive"
-                >
-                  <option value="fixed">Fixed price</option>
-                  <option value="quote">No price yet (not payable online)</option>
-                </select>
-              </div>
-
-              <div>
                 <label className="mb-1.5 block text-sm font-medium">Price (GHS)</label>
                 <input
                   type="number"
@@ -415,19 +388,13 @@ export default function AdminProductsPage() {
                   min="0"
                   value={form.price}
                   onChange={(event) => setForm({ ...form, price: event.target.value })}
-                  required={form.priceMode === "fixed"}
+                  placeholder="Leave blank if not priced yet"
                   className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive"
                 />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Starting label</label>
-                <input value={form.startingPriceLabel} onChange={(event) => setForm({ ...form, startingPriceLabel: event.target.value })} className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" placeholder="Price not set yet" />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Unit</label>
-                <input value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" placeholder="project, yard, piece..." />
+                <p className="mt-1 text-xs text-charcoal/45">
+                  Blank shows &quot;Contact for pricing&quot; instead of Add to Cart. If Customer choices below has priced
+                  values, the one the customer picks is charged instead of this base price.
+                </p>
               </div>
 
               <div>
@@ -439,12 +406,7 @@ export default function AdminProductsPage() {
                 </select>
               </div>
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Badge</label>
-                <input value={form.badge} onChange={(event) => setForm({ ...form, badge: event.target.value })} className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" placeholder="Most requested" />
-              </div>
-
-              <div className="flex items-end">
+              <div className="md:col-span-2 flex items-center">
                 <label className="flex items-center gap-3 rounded-md bg-soft-grey p-2.5 text-sm font-medium">
                   <input
                     type="checkbox"
@@ -461,16 +423,6 @@ export default function AdminProductsPage() {
                 <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="h-24 w-full resize-none rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" />
               </div>
 
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Minimum order note</label>
-                <input value={form.minimumOrder} onChange={(event) => setForm({ ...form, minimumOrder: event.target.value })} className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" placeholder="Depends on quantity and fabric choice" />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">Turnaround</label>
-                <input value={form.turnaround} onChange={(event) => setForm({ ...form, turnaround: event.target.value })} className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" placeholder="Confirmed during quote" />
-              </div>
-
               <div className="md:col-span-2">
                 <div className="mb-1.5 flex items-center justify-between">
                   <label className="block text-sm font-medium">Colors</label>
@@ -484,7 +436,7 @@ export default function AdminProductsPage() {
                 </div>
                 <p className="mb-2 text-xs text-charcoal/50">
                   Add a photo per color so picking it on the product page shows the cloth in that color, not just a swatch.
-                  For a combo cloth (e.g. "Red &amp; Black"), turn on Two-tone to show a split swatch instead of one solid color.
+                  For a combo cloth (e.g. &quot;Red &amp; Black&quot;), turn on Two-tone to show a split swatch instead of one solid color.
                 </p>
                 <div className="space-y-2">
                   {form.colorOptions.map((color, index) => (
@@ -726,7 +678,7 @@ export default function AdminProductsPage() {
                   <input
                     type="checkbox"
                     checked={form.trackInventory}
-                    disabled={form.priceMode === "quote"}
+                    disabled={!(Number(form.price) > 0)}
                     onChange={(event) => setForm({ ...form, trackInventory: event.target.checked })}
                     className="mt-1 h-4 w-4 accent-olive"
                   />
@@ -737,7 +689,7 @@ export default function AdminProductsPage() {
                     </span>
                   </span>
                 </label>
-                {form.trackInventory && form.priceMode === "fixed" && (
+                {form.trackInventory && Number(form.price) > 0 && (
                   <div className="mt-3">
                     <label className="mb-1.5 block text-sm font-medium">Stock units</label>
                     <input type="number" min="0" value={form.stockUnits} onChange={(event) => setForm({ ...form, stockUnits: event.target.value })} className="w-full rounded-md border border-charcoal/20 bg-white p-2.5 outline-none focus:border-olive" />
