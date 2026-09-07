@@ -404,13 +404,40 @@ export function getDefaultProduct(id: string) {
   return DEFAULT_PRODUCTS.find((product) => product.id === id) ?? null;
 }
 
-export function isQuoteProduct(product: Pick<CatalogProduct, "price" | "priceMode">) {
+/** True if any option value on this product carries its own price — such a
+ * product is sellable through that selection alone, even with no base price. */
+export function hasPricedOptionValue(optionGroups: ProductOptionGroup[] | undefined): boolean {
+  return !!optionGroups?.some((group) => group.values.some((value) => getOptionValuePrice(value) !== undefined));
+}
+
+export function isQuoteProduct(product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups">) {
+  if (hasPricedOptionValue(product.optionGroups)) return false;
   return product.priceMode === "quote" || product.price <= 0;
 }
 
-export function getPriceLabel(product: Pick<CatalogProduct, "price" | "priceMode" | "startingPriceLabel" | "unit">) {
+/** Lowest priced value across a product's option groups, or null if none
+ * carry a price — used to show "From GHS X" when there's no base price. */
+function getLowestOptionPrice(optionGroups: ProductOptionGroup[] | undefined): number | null {
+  let lowest: number | null = null;
+  for (const group of optionGroups || []) {
+    for (const value of group.values) {
+      const price = getOptionValuePrice(value);
+      if (price !== undefined && (lowest === null || price < lowest)) lowest = price;
+    }
+  }
+  return lowest;
+}
+
+export function getPriceLabel(
+  product: Pick<CatalogProduct, "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups">
+) {
   if (isQuoteProduct(product)) return product.startingPriceLabel || "Price not set yet";
-  return `GHS ${product.price.toFixed(2)}${product.unit ? ` / ${product.unit}` : ""}`;
+  const unitSuffix = product.unit ? ` / ${product.unit}` : "";
+  if (product.price > 0) return `GHS ${product.price.toFixed(2)}${unitSuffix}`;
+  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups);
+  return lowestOptionPrice !== null
+    ? `From GHS ${lowestOptionPrice.toFixed(2)}${unitSuffix}`
+    : product.startingPriceLabel || "Price not set yet";
 }
 
 export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct>): CatalogProduct {

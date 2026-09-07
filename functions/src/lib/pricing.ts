@@ -127,7 +127,15 @@ export function getDefaultProductPriceData(productId: string): ProductPriceData 
   return DEFAULT_PRODUCT_PRICE_DATA[productId] || null;
 }
 
+/** True if any option value on this product carries its own price — such a
+ * product is sellable through that selection alone, even with no base price.
+ * Mirrors src/lib/catalog.ts's hasPricedOptionValue. */
+function hasPricedOptionValue(optionGroups?: ProductOptionGroup[]): boolean {
+  return !!optionGroups?.some((group) => group.values.some((value) => optionValuePrice(value) !== undefined));
+}
+
 export function isQuoteProduct(product: ProductPriceData): boolean {
+  if (hasPricedOptionValue(product.optionGroups)) return false;
   return product.priceMode === 'quote' || (product.price || 0) <= 0;
 }
 
@@ -138,8 +146,12 @@ export function shouldTrackInventory(product: ProductPriceData): boolean {
 /**
  * Price per unit for a single item, given its purchase type and whichever
  * priced option values it selected (e.g. cloth length). If any selected
- * option carries its own price, that replaces the product's base price;
- * otherwise the base price is used as-is. Half piece = half the result.
+ * option carries its own price, that replaces the product's base price.
+ * Otherwise the base price is used — except when the product has NO base
+ * price and relies entirely on option pricing (isQuoteProduct already
+ * returned false for it on that basis): a missing/unmatched selection there
+ * must reject rather than silently fall back to product.price=0, which
+ * would let a cart item skip payment entirely. Half piece = half the result.
  */
 export function computeItemUnitPrice(
   product: ProductPriceData,
@@ -147,7 +159,11 @@ export function computeItemUnitPrice(
   selections?: Record<string, string>
 ): number {
   if (isQuoteProduct(product)) return 0;
-  const base = priceFromSelections(product, selections) ?? (product.price || 0);
+  const selectedPrice = priceFromSelections(product, selections);
+  if (selectedPrice === null && (product.price || 0) <= 0) {
+    throw new Error(`"${product.name || 'An item'}" needs a size/option selected before it can be priced.`);
+  }
+  const base = selectedPrice ?? (product.price || 0);
   return purchaseType === 'half' ? base / 2 : base;
 }
 

@@ -5,6 +5,7 @@ import {
   computeOrderTotals,
   computeUnitsForItem,
   getDefaultProductPriceData,
+  isQuoteProduct,
   shouldTrackInventory,
 } from './pricing';
 
@@ -105,6 +106,31 @@ test('a client cannot forge a lower price by sending a fabricated selection labe
   };
   // "6 Yards" was never offered on this product — no match, so the real base price holds.
   assert.equal(computeItemUnitPrice(product, 'full', { 'Cloth Length': '6 Yards' }), 500);
+});
+
+test('a product with no base price but priced option values is sellable, not a quote item', () => {
+  const product = {
+    price: 0,
+    priceMode: 'quote' as const,
+    optionGroups: [
+      { label: 'Size', values: [{ label: '12 yards', price: 300 }, { label: '6 yards', price: 150 }, { label: '3 yards', price: 75 }] },
+    ],
+  };
+  assert.equal(isQuoteProduct(product), false);
+  assert.equal(computeItemUnitPrice(product, 'full', { Size: '6 yards' }), 150);
+  assert.equal(computeItemUnitPrice(product, 'half', { Size: '12 yards' }), 150);
+});
+
+test('a zero-price, option-only product rejects instead of silently charging 0 when nothing was selected', () => {
+  const product = {
+    price: 0,
+    priceMode: 'quote' as const,
+    optionGroups: [{ label: 'Size', values: [{ label: '12 yards', price: 300 }] }],
+  };
+  assert.throws(() => computeItemUnitPrice(product, 'full', {}));
+  assert.throws(() => computeItemUnitPrice(product, 'full'));
+  // A genuinely unmatched label on an otherwise-priced product is the same failure, not a free item.
+  assert.throws(() => computeItemUnitPrice(product, 'full', { Size: 'not a real option' }));
 });
 
 test('order totals sum priced option selections across a multi-item cart', () => {
