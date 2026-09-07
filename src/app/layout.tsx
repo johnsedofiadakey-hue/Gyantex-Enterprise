@@ -21,17 +21,23 @@ import {
 } from "@/lib/config";
 
 // Every curated font pairing (src/lib/branding.ts's BRAND_FONT_OPTIONS) is
-// preloaded here so BrandingProvider can switch between them instantly at
-// runtime by pointing --font-sans/--font-serif at a different variable —
-// no network fetch or page reload needed when the admin changes it.
+// declared here so BrandingProvider can switch between them at runtime by
+// pointing --font-sans/--font-serif at a different variable. Only the
+// default pairing (Inter/Poppins) is preloaded — it's what every visitor
+// sees unless the owner has changed Admin → Settings → Branding, so eagerly
+// fetching the other 6 pairings' font files on every single page load was
+// pure wasted bandwidth on the critical path. The rest still work exactly
+// the same when actually selected — next/font self-hosts and inlines them
+// with font-display: swap regardless of preload, it's just no longer an
+// eager <link rel="preload"> for fonts almost nobody uses.
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const poppins = Poppins({ variable: "--font-poppins", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
-const lato = Lato({ variable: "--font-lato", subsets: ["latin"], weight: ["400", "700"] });
-const playfairDisplay = Playfair_Display({ variable: "--font-playfair", subsets: ["latin"], weight: ["500", "600", "700"] });
-const workSans = Work_Sans({ variable: "--font-work-sans", subsets: ["latin"], weight: ["400", "500", "600"] });
-const spaceGrotesk = Space_Grotesk({ variable: "--font-space-grotesk", subsets: ["latin"], weight: ["500", "600", "700"] });
-const sourceSans = Source_Sans_3({ variable: "--font-source-sans", subsets: ["latin"], weight: ["400", "500", "600"] });
-const libreBaskerville = Libre_Baskerville({ variable: "--font-libre-baskerville", subsets: ["latin"], weight: ["400", "700"] });
+const lato = Lato({ variable: "--font-lato", subsets: ["latin"], weight: ["400", "700"], preload: false });
+const playfairDisplay = Playfair_Display({ variable: "--font-playfair", subsets: ["latin"], weight: ["500", "600", "700"], preload: false });
+const workSans = Work_Sans({ variable: "--font-work-sans", subsets: ["latin"], weight: ["400", "500", "600"], preload: false });
+const spaceGrotesk = Space_Grotesk({ variable: "--font-space-grotesk", subsets: ["latin"], weight: ["500", "600", "700"], preload: false });
+const sourceSans = Source_Sans_3({ variable: "--font-source-sans", subsets: ["latin"], weight: ["400", "500", "600"], preload: false });
+const libreBaskerville = Libre_Baskerville({ variable: "--font-libre-baskerville", subsets: ["latin"], weight: ["400", "700"], preload: false });
 
 const FONT_VARIABLES = [inter, poppins, lato, playfairDisplay, workSans, spaceGrotesk, sourceSans, libreBaskerville]
   .map((font) => font.variable)

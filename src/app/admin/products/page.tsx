@@ -54,12 +54,17 @@ interface Product {
   featured?: boolean;
 }
 
-/** Editable form shape for an option group — values (and their optional per-value
- * prices) as comma-separated strings while typing, matched up positionally. */
+/** Editable form shape for one value within an option group — `price` is a
+ * plain string while typing; blank means "use the product's base price". */
+interface OptionValueDraft {
+  label: string;
+  price: string;
+}
+
+/** Editable form shape for an option group (e.g. "Cloth Length"). */
 interface OptionGroupDraft {
   label: string;
-  values: string;
-  prices: string;
+  values: OptionValueDraft[];
 }
 
 /** Editable form shape for a color — `image` holds an already-uploaded URL;
@@ -168,8 +173,10 @@ export default function AdminProductsPage() {
       colorOptions: getProductColorOptions(product).map((color) => ({ name: color.name, hex: color.hex, hex2: color.hex2, image: color.image })),
       optionGroups: (product.optionGroups || []).map((group) => ({
         label: group.label,
-        values: group.values.map(getOptionValueLabel).join(", "),
-        prices: group.values.map((v) => getOptionValuePrice(v) ?? "").join(", "),
+        values: group.values.map((value) => ({
+          label: getOptionValueLabel(value),
+          price: getOptionValuePrice(value) !== undefined ? String(getOptionValuePrice(value)) : "",
+        })),
       })),
       trackInventory: product.trackInventory !== false && product.priceMode !== "quote",
       stockUnits: String(product.stockUnits ?? ""),
@@ -194,13 +201,6 @@ export default function AdminProductsPage() {
 
     setSaving(true);
     try {
-      let imageUrl = editing?.imageUrl || "";
-      if (imageFile) {
-        const storageRef = ref(storage, `products/${Date.now()}_${imageFile.name}`);
-        await uploadBytes(storageRef, imageFile);
-        imageUrl = await getDownloadURL(storageRef);
-      }
-
       const colorOptions: ProductColorOption[] = [];
       for (let i = 0; i < form.colorOptions.length; i++) {
         const draft = form.colorOptions[i];
@@ -220,6 +220,17 @@ export default function AdminProductsPage() {
         });
       }
 
+      // The main/listing photo: a manually chosen file wins, otherwise fall
+      // back to the first color's photo (so products with color photos don't
+      // need a separate, redundant top-level upload), then whatever was
+      // already saved.
+      let imageUrl = colorOptions[0]?.image || editing?.imageUrl || "";
+      if (imageFile) {
+        const storageRef = ref(storage, `products/${Date.now()}_${imageFile.name}`);
+        await uploadBytes(storageRef, imageFile);
+        imageUrl = await getDownloadURL(storageRef);
+      }
+
       const trackInventory = form.priceMode === "fixed" && form.trackInventory;
       const payload = {
         name: form.name,
@@ -236,17 +247,16 @@ export default function AdminProductsPage() {
         colors: colorOptions.map((c) => c.hex),
         colorNames: colorOptions.map((c) => c.name),
         optionGroups: form.optionGroups
-          .map((group) => {
-            const labels = group.values.split(",").map((value) => value.trim()).filter(Boolean);
-            const prices = group.prices.split(",").map((price) => price.trim());
-            return {
-              label: group.label.trim(),
-              values: labels.map((label, index) => {
-                const price = Number(prices[index]);
-                return prices[index] && !Number.isNaN(price) ? { label, price } : label;
+          .map((group) => ({
+            label: group.label.trim(),
+            values: group.values
+              .filter((value) => value.label.trim())
+              .map((value) => {
+                const label = value.label.trim();
+                const price = Number(value.price);
+                return value.price.trim() && !Number.isNaN(price) ? { label, price } : label;
               }),
-            };
-          })
+          }))
           .filter((group) => group.label && group.values.length > 0),
         trackInventory,
         stockUnits: trackInventory ? Number(form.stockUnits) || 0 : null,
@@ -591,63 +601,115 @@ export default function AdminProductsPage() {
                   <label className="block text-sm font-medium">Customer choices (size, cut, etc.)</label>
                   <button
                     type="button"
-                    onClick={() => setForm({ ...form, optionGroups: [...form.optionGroups, { label: "", values: "", prices: "" }] })}
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        optionGroups: [...form.optionGroups, { label: "", values: [{ label: "", price: "" }] }],
+                      })
+                    }
                     className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
                   >
                     <Plus size={14} /> Add choice group
                   </button>
                 </div>
+                <p className="mb-2 text-xs text-charcoal/50">
+                  E.g. a &quot;Cloth Length&quot; group with 6 Yards, 12 Yards, and Full Piece — each can have its own price.
+                  Leave a value&apos;s price blank to keep it at the product&apos;s base price above.
+                </p>
                 {form.optionGroups.length === 0 ? (
                   <p className="text-xs text-charcoal/50">
                     None yet — add one if customers should pick a size, cloth length, or garment type before ordering.
                   </p>
                 ) : (
                   <div className="space-y-4">
-                    {form.optionGroups.map((group, index) => (
-                      <div key={index} className="rounded-md border border-charcoal/15 p-3">
+                    {form.optionGroups.map((group, groupIndex) => (
+                      <div key={groupIndex} className="rounded-md border border-charcoal/15 p-3">
                         <div className="flex gap-2">
                           <input
                             value={group.label}
                             onChange={(event) => {
                               const next = [...form.optionGroups];
-                              next[index] = { ...next[index], label: event.target.value };
+                              next[groupIndex] = { ...next[groupIndex], label: event.target.value };
                               setForm({ ...form, optionGroups: next });
                             }}
                             placeholder="Cloth Length"
-                            className="w-1/3 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
-                          />
-                          <input
-                            value={group.values}
-                            onChange={(event) => {
-                              const next = [...form.optionGroups];
-                              next[index] = { ...next[index], values: event.target.value };
-                              setForm({ ...form, optionGroups: next });
-                            }}
-                            placeholder="6 Yards, 12 Yards, Full Piece"
-                            className="flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+                            className="flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm font-medium outline-none focus:border-olive"
                           />
                           <button
                             type="button"
-                            onClick={() => setForm({ ...form, optionGroups: form.optionGroups.filter((_, i) => i !== index) })}
+                            onClick={() => setForm({ ...form, optionGroups: form.optionGroups.filter((_, i) => i !== groupIndex) })}
                             className="shrink-0 rounded-md border border-charcoal/15 px-2.5 text-charcoal/50 hover:border-terracotta hover:text-terracotta"
                             aria-label="Remove choice group"
                           >
                             <X size={15} />
                           </button>
                         </div>
-                        <input
-                          value={group.prices}
-                          onChange={(event) => {
-                            const next = [...form.optionGroups];
-                            next[index] = { ...next[index], prices: event.target.value };
-                            setForm({ ...form, optionGroups: next });
-                          }}
-                          placeholder="150, 280, 520 (optional — GHS per value, same order as above)"
-                          className="mt-2 w-full rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
-                        />
-                        <p className="mt-1 text-xs text-charcoal/45">
-                          Leave a price blank to keep that value at the product&apos;s base price. Set one and picking it sets the price customers pay.
-                        </p>
+
+                        <div className="mt-2 space-y-2">
+                          {group.values.map((value, valueIndex) => (
+                            <div key={valueIndex} className="flex items-center gap-2">
+                              <input
+                                value={value.label}
+                                onChange={(event) => {
+                                  const next = [...form.optionGroups];
+                                  const values = [...next[groupIndex].values];
+                                  values[valueIndex] = { ...values[valueIndex], label: event.target.value };
+                                  next[groupIndex] = { ...next[groupIndex], values };
+                                  setForm({ ...form, optionGroups: next });
+                                }}
+                                placeholder="12 Yards"
+                                className="flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+                              />
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-charcoal/45">GHS</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={value.price}
+                                  onChange={(event) => {
+                                    const next = [...form.optionGroups];
+                                    const values = [...next[groupIndex].values];
+                                    values[valueIndex] = { ...values[valueIndex], price: event.target.value };
+                                    next[groupIndex] = { ...next[groupIndex], values };
+                                    setForm({ ...form, optionGroups: next });
+                                  }}
+                                  placeholder="Base price"
+                                  className="w-28 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = [...form.optionGroups];
+                                  next[groupIndex] = {
+                                    ...next[groupIndex],
+                                    values: next[groupIndex].values.filter((_, i) => i !== valueIndex),
+                                  };
+                                  setForm({ ...form, optionGroups: next });
+                                }}
+                                className="shrink-0 rounded-md border border-charcoal/15 px-2 py-2 text-charcoal/50 hover:border-terracotta hover:text-terracotta"
+                                aria-label="Remove value"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = [...form.optionGroups];
+                              next[groupIndex] = {
+                                ...next[groupIndex],
+                                values: [...next[groupIndex].values, { label: "", price: "" }],
+                              };
+                              setForm({ ...form, optionGroups: next });
+                            }}
+                            className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
+                          >
+                            <Plus size={13} /> Add value
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -683,16 +745,22 @@ export default function AdminProductsPage() {
                 )}
               </div>
 
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium">Photo</label>
-                <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
-                  <Upload size={18} className="shrink-0 text-charcoal/50" />
-                  <span className="truncate text-sm text-charcoal/70">
-                    {imageFile ? imageFile.name : editing?.imageUrl ? "Replace current photo" : "Choose a photo"}
-                  </span>
-                  <input type="file" accept="image/*" className="hidden" onChange={(event) => setImageFile(event.target.files?.[0] || null)} />
-                </label>
-              </div>
+              {form.colorOptions.length === 0 ? (
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-sm font-medium">Photo</label>
+                  <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
+                    <Upload size={18} className="shrink-0 text-charcoal/50" />
+                    <span className="truncate text-sm text-charcoal/70">
+                      {imageFile ? imageFile.name : editing?.imageUrl ? "Replace current photo" : "Choose a photo"}
+                    </span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(event) => setImageFile(event.target.files?.[0] || null)} />
+                  </label>
+                </div>
+              ) : (
+                <p className="md:col-span-2 text-xs text-charcoal/50">
+                  This product&apos;s listing photo is its first color&apos;s photo above — no separate upload needed.
+                </p>
+              )}
             </div>
 
             <button
