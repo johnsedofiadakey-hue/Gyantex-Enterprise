@@ -4,21 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { motion } from "motion/react";
-import {
-  MapPin,
-  MessageCircle,
-  Package,
-  Search,
-  ShieldCheck,
-  ShoppingBag,
-  Star,
-} from "lucide-react";
+import { Package, Search, ShoppingBag, Star } from "lucide-react";
 import { db } from "@/lib/firebase";
-import {
-  BUSINESS_PHONE_DISPLAY,
-  PAYMENT_METHODS,
-  PICKUP_ADDRESS,
-} from "@/lib/config";
 import {
   DEFAULT_PRODUCTS,
   type CatalogProduct,
@@ -136,29 +123,6 @@ export default function Home() {
       )}
 
       <main className="flex-1">
-        <section className="border-b border-soft-grey bg-[#FBF8F1] px-4 py-3 md:px-6">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 text-xs font-medium text-charcoal/70 md:text-sm">
-            <span className="flex items-center gap-2">
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-clay/12 text-clay">
-                <MapPin size={13} />
-              </span>
-              {PICKUP_ADDRESS}
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-teal/12 text-teal">
-                <MessageCircle size={13} />
-              </span>
-              {BUSINESS_PHONE_DISPLAY}
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gold/15 text-[#8a6015]">
-                <ShieldCheck size={13} />
-              </span>
-              {PAYMENT_METHODS.join(" · ")}
-            </span>
-          </div>
-        </section>
-
         <section className="px-4 py-6 md:px-6 md:py-8">
           <div className="mx-auto max-w-7xl">
             {loading ? (

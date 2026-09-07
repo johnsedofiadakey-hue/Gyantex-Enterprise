@@ -145,7 +145,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
         <section className="mx-auto grid max-w-7xl gap-8 px-4 py-8 md:grid-cols-[1.05fr_0.95fr] md:px-6 md:py-12 lg:gap-14">
           <div className="space-y-3">
             <div className="relative aspect-[4/5] overflow-hidden rounded-xl bg-soft-grey md:aspect-square">
-              <AnimatePresence mode="wait">
+              <AnimatePresence>
                 <motion.div
                   key={currentImage}
                   initial={{ opacity: 0 }}
