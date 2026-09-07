@@ -3,14 +3,18 @@
 @theme {
   --color-white: #FFFFFF;
   --color-soft-grey: #F5F5F3;
-  --color-charcoal: #171717;
-  --color-olive: #5F6F52;
+  /* Brand palette sourced from the Gyantex logo (black / red / magenta) —
+     these three plus --color-white are also the four admin-editable fields
+     in src/lib/branding.ts (Admin → Settings → Branding); the values here
+     are their defaults when no custom branding has been saved. */
+  --color-charcoal: #000000;
+  --color-olive: #FD0100;
   --color-sand: #D8C8B8;
   --color-terracotta: #D95D39;
 
   /* Kente-inspired accent palette — used sparingly for badges, highlights,
      and motion accents so the storefront reads as alive, not flat. */
-  --color-gold: #E3A93B;
+  --color-gold: #FF00FC;
   --color-teal: #1E7A72;
   --color-clay: #C1432B;
 

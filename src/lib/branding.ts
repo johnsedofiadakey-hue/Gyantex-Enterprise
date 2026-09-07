@@ -13,9 +13,9 @@ export interface BrandColorField {
 }
 
 export const BRAND_COLOR_FIELDS: BrandColorField[] = [
-  { key: "primary", label: "Primary", hint: "Buttons, links, active states", cssVar: "--color-olive", default: "#5F6F52" },
-  { key: "secondary", label: "Text", hint: "Body text everywhere, plus headers, dark sections, and the admin sidebar", cssVar: "--color-charcoal", default: "#171717" },
-  { key: "accent", label: "Accent", hint: "Badges and highlights (e.g. Best Seller)", cssVar: "--color-gold", default: "#E3A93B" },
+  { key: "primary", label: "Primary", hint: "Buttons, links, active states", cssVar: "--color-olive", default: "#FD0100" },
+  { key: "secondary", label: "Text", hint: "Body text everywhere, plus headers, dark sections, and the admin sidebar", cssVar: "--color-charcoal", default: "#000000" },
+  { key: "accent", label: "Accent", hint: "Badges and highlights (e.g. Best Seller)", cssVar: "--color-gold", default: "#FF00FC" },
   { key: "background", label: "Background", hint: "Page and card background — keep it light so text stays readable", cssVar: "--color-white", default: "#FFFFFF" },
 ];
 
