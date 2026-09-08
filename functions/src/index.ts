@@ -24,7 +24,7 @@ const db = admin.firestore();
 const RESERVATION_TTL_MINUTES = 20;
 
 // Public site URL, used to link back to the storefront from SMS/email —
-// e.g. https://gyantexenterpr1se.web.app. Omit the trailing slash. Falls back to
+// e.g. https://gyantex.com. Omit the trailing slash. Falls back to
 // leaving the tracking mention out of messages if unset.
 const SITE_URL = (process.env.SITE_URL || functions.config().app?.site_url || '').replace(/\/$/, '');
 

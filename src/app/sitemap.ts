@@ -3,7 +3,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DEFAULT_PRODUCTS } from "@/lib/catalog";
 
-const SITE_URL = "https://gyantexenterpr1se.web.app";
+const SITE_URL = "https://gyantex.com";
 
 const STATIC_ROUTES = ["", "/contact", "/terms", "/privacy", "/returns"];
 

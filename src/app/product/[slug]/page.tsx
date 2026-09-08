@@ -14,7 +14,7 @@ import {
 } from "@/lib/catalog";
 import ProductDetailClient from "./ProductDetailClient";
 
-const SITE_URL = "https://gyantexenterpr1se.web.app";
+const SITE_URL = "https://gyantex.com";
 
 // Same reasoning as the homepage (src/app/page.tsx): without this, every
 // single product-page view is a fresh SSR invocation + Firestore read —

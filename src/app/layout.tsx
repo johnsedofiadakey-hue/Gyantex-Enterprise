@@ -43,7 +43,7 @@ const FONT_VARIABLES = [inter, poppins, lato, playfairDisplay, workSans, spaceGr
   .map((font) => font.variable)
   .join(" ");
 
-const SITE_URL = "https://gyantexenterpr1se.web.app";
+const SITE_URL = "https://gyantex.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
