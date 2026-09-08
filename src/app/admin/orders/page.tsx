@@ -6,6 +6,7 @@ import { db } from "@/lib/firebase";
 import { useToastStore } from "@/store/useToastStore";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import { ChevronDown, MessageCircle, Store } from "lucide-react";
+import ProductImage from "@/components/ProductImage";
 
 interface OrderItem {
   name: string;
@@ -15,6 +16,7 @@ interface OrderItem {
   minimumOrder?: string;
   category?: string;
   color: string;
+  image?: string;
   selections?: Record<string, string>;
   purchaseType: "full" | "half";
 }
@@ -26,6 +28,7 @@ interface Order {
   customer: { firstName: string; lastName?: string; phone: string; email?: string };
   items: OrderItem[];
   deliveryZone: string;
+  deliveryFee?: number;
   deliveryDetails?: { label?: string; address?: string; notes?: string; pickupAddress?: string };
   projectDetails?: { organization?: string; neededBy?: string; brief?: string };
   totalAmount: number;
@@ -167,16 +170,23 @@ export default function AdminOrdersPage() {
                       onClick={() => setExpandedId(isExpanded ? null : order.id)}
                     >
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-olive">{order.orderNumber || `#${order.id.slice(0, 8)}`}</span>
-                          {order.channel === "pos" && (
-                            <span className="flex items-center gap-1 rounded bg-charcoal/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal/60">
-                              <Store size={10} /> In-Store
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-charcoal/50">
-                          {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleString() : "—"}
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md bg-soft-grey">
+                            <ProductImage src={order.items?.[0]?.image} alt="" sizes="40px" className="object-cover" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-olive">{order.orderNumber || `#${order.id.slice(0, 8)}`}</span>
+                              {order.channel === "pos" && (
+                                <span className="flex items-center gap-1 rounded bg-charcoal/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal/60">
+                                  <Store size={10} /> In-Store
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-charcoal/50">
+                              {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleString() : "—"}
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -213,22 +223,28 @@ export default function AdminOrdersPage() {
                     {isExpanded && (
                       <tr className="bg-soft-grey/30">
                         <td colSpan={6} className="px-6 py-4">
-                          <div className="space-y-2 mb-3">
+                          <div className="mb-4 space-y-3">
                             {order.items?.map((item, i) => {
                               const selectionText = item.selections
                                 ? Object.entries(item.selections).map(([label, value]) => `${label}: ${value}`).join(", ")
                                 : "";
                               return (
-                                <div key={i} className="flex justify-between text-sm">
-                                  <span>
-                                    {item.quantity}x {item.name} ({item.category || item.color || "custom"}, {item.purchaseType === "full" ? "Full" : "Half"})
-                                    {selectionText && <span className="block text-xs text-charcoal/50">{selectionText}</span>}
-                                  </span>
-                                  <span className="font-medium">{priceLabel(item)}</span>
+                                <div key={i} className="flex items-center gap-3">
+                                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-white">
+                                    <ProductImage src={item.image} alt={item.name} sizes="48px" className="object-cover" />
+                                  </div>
+                                  <div className="flex flex-1 items-center justify-between gap-4 text-sm">
+                                    <span>
+                                      {item.quantity}x {item.name} ({item.category || item.color || "custom"}, {item.purchaseType === "full" ? "Full" : "Half"})
+                                      {selectionText && <span className="block text-xs text-charcoal/50">{selectionText}</span>}
+                                    </span>
+                                    <span className="shrink-0 font-medium">{priceLabel(item)}</span>
+                                  </div>
                                 </div>
                               );
                             })}
                           </div>
+
                           {order.projectDetails?.brief && (
                             <div className="mb-3 rounded-md bg-white p-3 text-xs leading-5 text-charcoal/65">
                               <div className="mb-1 font-semibold text-charcoal">Brief</div>
@@ -237,30 +253,45 @@ export default function AdminOrdersPage() {
                               <div>{order.projectDetails.brief}</div>
                             </div>
                           )}
-                          <div className="flex flex-wrap items-center gap-4 text-xs text-charcoal/60">
-                            {order.channel === "pos" ? (
-                              <>
-                                <span className="capitalize">Payment: {order.paymentMethod?.replace("_", " ")}</span>
-                                {order.staffEmail && <span>Rung up by: {order.staffEmail}</span>}
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-md bg-white p-3 text-xs leading-5 text-charcoal/65">
+                              <div className="mb-1 font-semibold text-charcoal">
+                                {order.deliveryZone === "pickup" ? "Pickup" : "Delivery"}
+                              </div>
+                              <div>Method: {order.deliveryDetails?.label || order.deliveryZone?.replace(/_/g, " ")}</div>
+                              {(order.deliveryDetails?.address || order.deliveryDetails?.pickupAddress) && (
+                                <div>Address: {order.deliveryDetails.address || order.deliveryDetails.pickupAddress}</div>
+                              )}
+                              {order.deliveryDetails?.notes && <div>Notes: {order.deliveryDetails.notes}</div>}
+                              <div>Fee: {order.deliveryFee ? `GHS ${order.deliveryFee.toFixed(2)}` : "Free"}</div>
+                            </div>
+
+                            <div className="rounded-md bg-white p-3 text-xs leading-5 text-charcoal/65">
+                              <div className="mb-1 font-semibold text-charcoal">Customer</div>
+                              {order.customer?.email && <div>Email: {order.customer.email}</div>}
+                              {order.customer?.phone && <div className="mb-1.5">Phone: {order.customer.phone}</div>}
+                              {order.customer?.phone && (
+                                <a
+                                  href={`https://wa.me/${order.customer.phone.replace(/\D/g, "")}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-1 font-medium text-[#128C7E] hover:underline"
+                                >
+                                  <MessageCircle size={14} /> Message on WhatsApp
+                                </a>
+                              )}
+                            </div>
+
+                            {order.channel === "pos" && (
+                              <div className="rounded-md bg-white p-3 text-xs leading-5 text-charcoal/65 sm:col-span-2">
+                                <div className="mb-1 font-semibold text-charcoal">In-Store Sale</div>
+                                <div className="capitalize">Payment: {order.paymentMethod?.replace("_", " ")}</div>
+                                {order.staffEmail && <div>Rung up by: {order.staffEmail}</div>}
                                 {typeof order.changeDue === "number" && order.changeDue > 0 && (
-                                  <span>Change given: GHS {order.changeDue.toFixed(2)}</span>
+                                  <div>Change given: GHS {order.changeDue.toFixed(2)}</div>
                                 )}
-                              </>
-                            ) : (
-                              <span>Delivery: {order.deliveryDetails?.label || order.deliveryZone?.replace(/_/g, " ")}</span>
-                            )}
-                            {order.deliveryDetails?.address && <span>Address: {order.deliveryDetails.address}</span>}
-                            {order.deliveryDetails?.notes && <span>Notes: {order.deliveryDetails.notes}</span>}
-                            {order.customer?.email && <span>Email: {order.customer.email}</span>}
-                            {order.customer?.phone && (
-                              <a
-                                href={`https://wa.me/${order.customer.phone.replace(/\D/g, "")}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex items-center gap-1 text-[#128C7E] font-medium hover:underline"
-                              >
-                                <MessageCircle size={14} /> Message on WhatsApp
-                              </a>
+                              </div>
                             )}
                           </div>
                         </td>

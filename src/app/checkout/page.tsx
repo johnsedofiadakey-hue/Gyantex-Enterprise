@@ -206,10 +206,6 @@ export default function CheckoutPage() {
                   <input name="email" type="email" autoComplete="email" className="w-full rounded-lg border border-charcoal/20 p-3 outline-none focus:border-olive focus:ring-1 focus:ring-olive" placeholder="you@example.com" />
                 </div>
               </div>
-              <label className="mt-4 flex min-h-[44px] cursor-pointer items-start gap-3 rounded-lg bg-olive/10 px-4 py-3">
-                <input type="checkbox" name="marketingOptIn" className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-olive" />
-                <span className="text-sm leading-5 text-olive">Send me new designs and offers on WhatsApp or SMS</span>
-              </label>
             </section>
 
             <section className="rounded-2xl bg-white p-5 shadow-sm md:p-6">
