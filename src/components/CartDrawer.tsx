@@ -14,7 +14,11 @@ interface CartDrawerProps {
 
 export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
   const cart = useCartStore();
-  const hasQuoteItems = cart.items.some((item) => item.priceMode === "quote" || item.price <= 0);
+  // item.price is already the fully-resolved price (base price, or a priced
+  // Customer-choices selection) — item.priceMode is just a stale copy of the
+  // product's base-price mode and can say "quote" even when the item
+  // resolved to a real price via an option value.
+  const hasQuoteItems = cart.items.some((item) => item.price <= 0);
   const fixedSubtotal = cart.totalPrice();
 
   useEffect(() => {
@@ -81,7 +85,7 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                           </button>
                         </div>
                         <div className="mt-1 text-xs text-charcoal/55">
-                          {item.priceMode === "quote" || item.price <= 0
+                          {item.price <= 0
                             ? item.minimumOrder || "Custom quote"
                             : `${item.color} | ${item.purchaseType === "half" ? "Half" : "Full"}`}
                         </div>
@@ -109,7 +113,7 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                             </button>
                           </div>
                           <div className="text-sm font-semibold">
-                            {item.priceMode === "quote" || item.price <= 0
+                            {item.price <= 0
                               ? "Price not set yet"
                               : `GHS ${(item.price * item.quantity).toFixed(2)}`}
                           </div>
