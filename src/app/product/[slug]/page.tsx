@@ -16,6 +16,14 @@ import ProductDetailClient from "./ProductDetailClient";
 
 const SITE_URL = "https://gyantexenterpr1se.web.app";
 
+// Same reasoning as the homepage (src/app/page.tsx): without this, every
+// single product-page view is a fresh SSR invocation + Firestore read —
+// real cost and latency for a page whose content (price, photos, colors)
+// changes rarely. Stock/availability isn't rendered here at all (checkout
+// re-validates it server-side regardless), so a 60s-stale price/photo is
+// the only trade-off, same as the homepage.
+export const revalidate = 60;
+
 async function getProduct(slug: string): Promise<CatalogProduct | null> {
   try {
     const snap = await getDoc(doc(db, "products", slug));

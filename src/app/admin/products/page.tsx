@@ -30,6 +30,7 @@ import { db, storage } from "@/lib/firebase";
 import { useToastStore } from "@/store/useToastStore";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import ProductImage from "@/components/ProductImage";
+import { compressImageForUpload } from "@/lib/imageCompression";
 
 interface Product {
   id: string;
@@ -185,24 +186,29 @@ export default function AdminProductsPage() {
 
     setSaving(true);
     try {
-      const colorOptions: ProductColorOption[] = [];
-      for (let i = 0; i < form.colorOptions.length; i++) {
-        const draft = form.colorOptions[i];
-        if (!draft.name.trim() && !draft.hex.trim()) continue;
-        let image = draft.image || "";
-        const pendingFile = colorImageFiles[i];
-        if (pendingFile) {
-          const colorStorageRef = ref(storage, `products/colors/${Date.now()}_${pendingFile.name}`);
-          await uploadBytes(colorStorageRef, pendingFile);
-          image = await getDownloadURL(colorStorageRef);
-        }
-        colorOptions.push({
-          name: draft.name.trim() || draft.hex.trim(),
-          hex: draft.hex.trim() || "#111111",
-          ...(draft.hex2?.trim() ? { hex2: draft.hex2.trim() } : {}),
-          ...(image ? { image } : {}),
-        });
-      }
+      // Compressed + uploaded in parallel — each color photo is independent,
+      // so there's no reason to make one wait on the previous one finishing.
+      const colorUploads = await Promise.all(
+        form.colorOptions.map(async (draft, i) => {
+          if (!draft.name.trim() && !draft.hex.trim()) return null;
+          let image = draft.image || "";
+          const pendingFile = colorImageFiles[i];
+          if (pendingFile) {
+            const compressed = await compressImageForUpload(pendingFile);
+            const colorStorageRef = ref(storage, `products/colors/${Date.now()}_${i}_${compressed.name}`);
+            await uploadBytes(colorStorageRef, compressed);
+            image = await getDownloadURL(colorStorageRef);
+          }
+          const color: ProductColorOption = {
+            name: draft.name.trim() || draft.hex.trim(),
+            hex: draft.hex.trim() || "#111111",
+            ...(draft.hex2?.trim() ? { hex2: draft.hex2.trim() } : {}),
+            ...(image ? { image } : {}),
+          };
+          return color;
+        })
+      );
+      const colorOptions: ProductColorOption[] = colorUploads.filter((c): c is ProductColorOption => c !== null);
 
       // The main/listing photo: a manually chosen file wins, otherwise fall
       // back to the first color's photo (so products with color photos don't
@@ -210,8 +216,9 @@ export default function AdminProductsPage() {
       // already saved.
       let imageUrl = colorOptions[0]?.image || editing?.imageUrl || "";
       if (imageFile) {
-        const storageRef = ref(storage, `products/${Date.now()}_${imageFile.name}`);
-        await uploadBytes(storageRef, imageFile);
+        const compressed = await compressImageForUpload(imageFile);
+        const storageRef = ref(storage, `products/${Date.now()}_${compressed.name}`);
+        await uploadBytes(storageRef, compressed);
         imageUrl = await getDownloadURL(storageRef);
       }
 
