@@ -9,8 +9,14 @@ import Footer from "@/components/Footer";
 import KenteStripe from "@/components/KenteStripe";
 import ProductImage from "@/components/ProductImage";
 
+// item.price is already the fully-resolved price (base price, or a priced
+// Customer-choices selection, whichever applied) — that's the one true
+// signal here. item.priceMode is just a stale copy of the product's own
+// base-price mode at add-to-cart time, which is misleading on its own: a
+// product can be priceMode "quote" (no base price) while still resolving
+// to a real, non-zero item.price via a priced option value.
 function isQuoteItem(item: CartItem) {
-  return item.priceMode === "quote" || item.price <= 0;
+  return item.price <= 0;
 }
 
 function itemPriceLabel(item: CartItem) {

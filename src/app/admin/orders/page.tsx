@@ -101,13 +101,17 @@ export default function AdminOrdersPage() {
     }
   };
 
+  // item.price is already the fully-resolved price at order time (base
+  // price, or a priced Customer-choices selection) — item.priceMode is just
+  // a stale copy of the product's base-price mode and can say "quote" even
+  // when the item resolved to a real price via an option value.
   const priceLabel = (item: OrderItem) => {
-    if (item.priceMode === "quote" || item.price <= 0) return "Price not set yet";
+    if (item.price <= 0) return "Price not set yet";
     return `GHS ${(item.price * item.quantity).toFixed(2)}`;
   };
 
   const totalLabel = (order: Order) => {
-    const hasQuoteItems = order.status === "quote_requested" || order.items?.some((item) => item.priceMode === "quote" || item.price <= 0);
+    const hasQuoteItems = order.status === "quote_requested" || order.items?.some((item) => item.price <= 0);
     if (hasQuoteItems && !order.totalAmount) return "After quote";
     return `GHS ${order.totalAmount?.toFixed(2)}`;
   };

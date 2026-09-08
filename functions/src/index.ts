@@ -181,7 +181,7 @@ async function sendOrderConfirmationEmail(order: admin.firestore.DocumentData, r
   const items = (order.items || []) as Array<{ name: string; quantity: number; color?: string; purchaseType: 'full' | 'half'; price: number; priceMode?: 'fixed' | 'quote' }>;
   const itemsList = items
     .map((i) => {
-      const price = i.priceMode === 'quote' || i.price <= 0 ? 'Price not set yet' : `GHS ${(i.price * i.quantity).toFixed(2)}`;
+      const price = i.price <= 0 ? 'Price not set yet' : `GHS ${(i.price * i.quantity).toFixed(2)}`;
       return `- ${i.quantity}x ${i.name}${i.color ? ` (${i.color}, ${i.purchaseType === 'full' ? 'Full Piece' : 'Half Piece'})` : ''} — ${price}`;
     })
     .join('\n');
@@ -559,9 +559,9 @@ export const getOrderStatus = functions.https.onCall(async (data) => {
  * reference and the phone number it was placed under.
  */
 export const trackOrder = functions.https.onCall(async (data) => {
-  const { orderNumber } = data as { orderNumber?: string };
-  if (!orderNumber?.trim()) {
-    throw new functions.https.HttpsError('invalid-argument', 'Enter your order number.');
+  const { orderNumber, phone } = data as { orderNumber?: string; phone?: string };
+  if (!orderNumber?.trim() || !phone?.trim()) {
+    throw new functions.https.HttpsError('invalid-argument', 'Enter your order number and phone number.');
   }
 
   const query = await db
@@ -575,6 +575,15 @@ export const trackOrder = functions.https.onCall(async (data) => {
 
   const snap = query.docs[0];
   const order = snap.data();
+
+  // Order numbers are short sequential codes (GYX-1042, GYX-1043, ...) —
+  // trivially guessable/enumerable. Without this check, anyone could pull
+  // any customer's name and delivery address just by trying numbers in
+  // sequence. Same generic "not found" error either way, so a wrong phone
+  // guess can't be used to confirm an order number is valid.
+  if (normalizeGhanaPhone(phone) !== normalizeGhanaPhone(order.customer?.phone || '')) {
+    throw new functions.https.HttpsError('not-found', "We couldn't find an order with that number.");
+  }
 
   return {
     orderId: snap.id,

@@ -53,12 +53,16 @@ function FulfillmentTracker({ current }: { current: OrderStatusData["fulfillment
   );
 }
 
+// item.price is already the fully-resolved price at order time (base price,
+// or a priced Customer-choices selection) — item.priceMode is just a stale
+// copy of the product's base-price mode and can say "quote" even when the
+// item resolved to a real price via an option value.
 function isQuoteOrder(order: OrderStatusData) {
-  return order.status === "quote_requested" || order.items?.some((item) => item.priceMode === "quote" || item.price <= 0);
+  return order.status === "quote_requested" || order.items?.some((item) => item.price <= 0);
 }
 
 function itemPriceLabel(item: OrderStatusData["items"][number]) {
-  if (item.priceMode === "quote" || item.price <= 0) return "Price not set yet";
+  if (item.price <= 0) return "Price not set yet";
   return `GHS ${(item.price * item.quantity).toFixed(2)}`;
 }
 

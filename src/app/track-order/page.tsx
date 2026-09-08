@@ -18,6 +18,7 @@ function TrackOrderContent() {
   const hasTrackingLink = Boolean(linkOrderId && linkToken);
 
   const [orderNumber, setOrderNumber] = useState("");
+  const [phone, setPhone] = useState("");
   const [state, setState] = useState<"idle" | "loading" | "found" | "error">(hasTrackingLink ? "loading" : "idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [order, setOrder] = useState<OrderStatusData | null>(null);
@@ -43,7 +44,7 @@ function TrackOrderContent() {
     setErrorMessage("");
     try {
       const trackOrder = httpsCallable(functions, "trackOrder");
-      const result = await trackOrder({ orderNumber: orderNumber.trim() });
+      const result = await trackOrder({ orderNumber: orderNumber.trim(), phone: phone.trim() });
       setOrder(result.data as OrderStatusData);
       setState("found");
     } catch (error: unknown) {
@@ -79,7 +80,7 @@ function TrackOrderContent() {
             <div className="w-full rounded-2xl bg-white p-8 shadow-sm">
               <h1 className="font-serif text-2xl font-semibold mb-2 text-center">Track Your Order</h1>
               <p className="text-charcoal/60 text-sm mb-6 text-center">
-                Enter the order number from your SMS or WhatsApp confirmation.
+                Enter the order number and the phone number used to place it.
               </p>
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -91,6 +92,18 @@ function TrackOrderContent() {
                     value={orderNumber}
                     onChange={(e) => setOrderNumber(e.target.value)}
                     placeholder="e.g. GYX-1042"
+                    className="w-full p-3 rounded-lg border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">Phone number used at checkout</label>
+                  <input
+                    required
+                    type="tel"
+                    autoComplete="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="024 686 0173"
                     className="w-full p-3 rounded-lg border border-charcoal/20 focus:border-olive focus:ring-1 focus:ring-olive outline-none"
                   />
                 </div>

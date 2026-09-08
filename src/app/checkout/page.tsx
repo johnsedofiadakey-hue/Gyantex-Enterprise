@@ -35,8 +35,10 @@ interface CheckoutFormValues {
   marketingOptIn: boolean;
 }
 
+// See src/app/cart/page.tsx's isQuoteItem for why item.price alone is the
+// right check, not item.priceMode.
 function isQuoteItem(item: CartItem) {
-  return item.priceMode === "quote" || item.price <= 0;
+  return item.price <= 0;
 }
 
 function itemPriceLabel(item: CartItem) {
