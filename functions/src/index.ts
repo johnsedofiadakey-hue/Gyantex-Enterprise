@@ -286,6 +286,21 @@ async function finalizeOrderPayment(reference: string): Promise<{ order: Firebas
 }
 
 /**
+ * Paystack secret key — sourced from Firestore (set by the owner themselves
+ * via Admin → Settings → Payments) first, falling back to the .env value.
+ * This is the whole point of that admin flow: the owner never has to hand
+ * their live secret key to whoever built this site. The Firestore doc this
+ * reads (`secrets/paystack`) has `allow read, write: if false` in
+ * firestore.rules — no client, including the owner's own browser, can ever
+ * read it back; only this Admin-SDK server code can. Never log this value.
+ */
+async function getPaystackSecretKey(): Promise<string | undefined> {
+  const snap = await db.collection('secrets').doc('paystack').get();
+  const stored = snap.exists ? (snap.data()?.secretKey as string | undefined) : undefined;
+  return stored || process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
+}
+
+/**
  * Asks Paystack directly whether a transaction actually succeeded — the
  * authoritative source, independent of whether their webhook ever reached
  * us. Used as a fallback when a customer lands on the confirmation page
@@ -295,7 +310,7 @@ async function finalizeOrderPayment(reference: string): Promise<{ order: Firebas
  * Paystack isn't configured or the call itself fails — never guesses success.
  */
 async function verifyPaystackTransaction(reference: string): Promise<'success' | 'failed' | 'other'> {
-  const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
+  const PAYSTACK_SECRET = await getPaystackSecretKey();
   if (!PAYSTACK_SECRET) return 'other';
 
   try {
@@ -450,7 +465,7 @@ export const initializeCheckout = functions.https.onCall(async (data) => {
   const { total: secureTotalAmount } = computeOrderTotals(items, productsById, deliveryZone, deliveryFeeMap);
   const callbackUrl = origin ? `${origin}/order-confirmation?reference=${orderId}&t=${confirmToken}` : undefined;
 
-  const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
+  const PAYSTACK_SECRET = await getPaystackSecretKey();
 
   if (!PAYSTACK_SECRET) {
     // No live key configured — return a mock URL so the flow is testable end-to-end in dev.
@@ -506,7 +521,7 @@ export const initializeCheckout = functions.https.onCall(async (data) => {
  * trusting it, then finalizes the stock reservation into a permanent deduction.
  */
 export const paystackWebhook = functions.https.onRequest(async (req, res) => {
-  const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
+  const PAYSTACK_SECRET = await getPaystackSecretKey();
 
   if (PAYSTACK_SECRET) {
     const signature = req.headers['x-paystack-signature'];
@@ -827,6 +842,74 @@ export const setStaffStatus = functions.https.onCall(async (data: SetStaffStatus
   }
   await db.collection('staff').doc(uid).set({ status }, { merge: true });
   return { uid, status };
+});
+
+// ---------------------------------------------------------------------------
+// PAYMENT SETUP (owner only)
+// ---------------------------------------------------------------------------
+
+interface SetPaystackKeyInput {
+  secretKey: string;
+}
+
+/**
+ * Lets the business owner paste their own Paystack secret key in directly
+ * from Admin → Settings → Payments, instead of handing it to whoever built
+ * this site. Stored in `secrets/paystack`, a Firestore collection with
+ * `allow read, write: if false` in firestore.rules — this Cloud Function
+ * (Admin SDK) is the only thing that can ever read or write it; no client,
+ * including the owner's own signed-in browser, can read the raw value back.
+ * Never logged, never returned in this function's response either.
+ */
+export const setPaystackKey = functions.https.onCall(async (data: SetPaystackKeyInput, context) => {
+  assertOwner(context);
+
+  const key = (data.secretKey || '').trim();
+  if (!/^sk_(test|live)_[A-Za-z0-9]{8,}$/.test(key)) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      "That doesn't look like a Paystack secret key — it should start with sk_test_ or sk_live_ (find it under Settings → API Keys & Webhooks in your Paystack dashboard)."
+    );
+  }
+
+  const mode = key.startsWith('sk_live_') ? 'live' : 'test';
+  await db.collection('secrets').doc('paystack').set({
+    secretKey: key,
+    mode,
+    last4: key.slice(-4),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedBy: context.auth!.uid,
+  });
+
+  return { mode, last4: key.slice(-4) };
+});
+
+/**
+ * Owner-only status check for the settings page — reports whether a key is
+ * configured and a masked preview (mode + last 4 characters) so the owner
+ * can confirm they pasted the right one, without ever exposing the real
+ * value to the browser.
+ */
+export const getPaystackKeyStatus = functions.https.onCall(async (_data, context) => {
+  assertOwner(context);
+
+  const snap = await db.collection('secrets').doc('paystack').get();
+  if (snap.exists && snap.data()?.secretKey) {
+    const data = snap.data()!;
+    return { configured: true, mode: data.mode as 'test' | 'live', last4: data.last4 as string, source: 'admin' as const };
+  }
+
+  const envKey = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
+  if (envKey) {
+    return {
+      configured: true,
+      mode: (envKey.startsWith('sk_live_') ? 'live' : 'test') as 'test' | 'live',
+      last4: envKey.slice(-4),
+      source: 'deploy-config' as const,
+    };
+  }
+
+  return { configured: false as const };
 });
 
 // ---------------------------------------------------------------------------

@@ -9,8 +9,9 @@ import {
   verifyBeforeUpdateEmail,
   type User,
 } from "firebase/auth";
-import { RotateCcw } from "lucide-react";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { CheckCircle2, KeyRound, RotateCcw } from "lucide-react";
+import { db, functions } from "@/lib/firebase";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import {
   applyBrandColors,
@@ -22,6 +23,7 @@ import {
   type BrandColors,
 } from "@/lib/branding";
 import { useToastStore } from "@/store/useToastStore";
+import { getCallableErrorMessage } from "@/lib/errors";
 import {
   BUSINESS_HOURS,
   BUSINESS_PHONE_DISPLAY,
@@ -172,6 +174,121 @@ function ChangePasswordForm({ user }: { user: User }) {
         {submitting ? "Updating..." : "Update password"}
       </button>
     </form>
+  );
+}
+
+interface PaystackKeyStatus {
+  configured: boolean;
+  mode?: "test" | "live";
+  last4?: string;
+  source?: "admin" | "deploy-config";
+}
+
+/** Lets the owner paste their own Paystack secret key in directly — nobody
+ * else, including whoever built this site, ever needs to see it. The key is
+ * sent straight to the setPaystackKey Cloud Function and stored where no
+ * client (not even this same page, reloaded) can read it back — only a
+ * masked mode + last-4 preview ever comes back down, from getPaystackKeyStatus. */
+function PaymentsSection() {
+  const [status, setStatus] = useState<PaystackKeyStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const toast = useToastStore((state) => state.show);
+
+  const loadStatus = async () => {
+    setLoading(true);
+    try {
+      const getPaystackKeyStatus = httpsCallable(functions, "getPaystackKeyStatus");
+      const result = await getPaystackKeyStatus();
+      setStatus(result.data as PaystackKeyStatus);
+    } catch (error) {
+      console.error("Failed to load Paystack key status", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!key.trim()) return;
+    setSaving(true);
+    try {
+      const setPaystackKey = httpsCallable(functions, "setPaystackKey");
+      await setPaystackKey({ secretKey: key.trim() });
+      toast("Paystack key saved. Payments now run on this key.", "success");
+      setKey("");
+      await loadStatus();
+    } catch (error) {
+      console.error(error);
+      toast(getCallableErrorMessage(error, "Couldn't save that key. Please try again."), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="bg-white p-6 shadow-sm">
+      <h3 className="mb-1 font-semibold">Payments</h3>
+      <p className="mb-5 text-sm leading-6 text-charcoal/60">
+        Your Paystack secret key stays here only — it&apos;s never shown again after you save it, on this
+        screen or anywhere else. Find it in your Paystack dashboard under Settings → API Keys & Webhooks.
+      </p>
+
+      {loading ? (
+        <p className="text-sm text-charcoal/50">Checking status...</p>
+      ) : (
+        <>
+          <div
+            className={`mb-5 flex items-center gap-2 rounded-md px-3 py-2.5 text-sm ${
+              status?.configured ? "bg-olive/10 text-olive" : "bg-terracotta/10 text-terracotta"
+            }`}
+          >
+            {status?.configured ? (
+              <>
+                <CheckCircle2 size={16} className="shrink-0" />
+                <span>
+                  Connected — <span className="font-medium capitalize">{status.mode}</span> mode key ending{" "}
+                  <span className="font-mono">{status.last4}</span>
+                  {status.source === "deploy-config" ? " (set at deploy time)" : ""}
+                </span>
+              </>
+            ) : (
+              <>
+                <KeyRound size={16} className="shrink-0" />
+                <span>No Paystack key configured yet — checkout will run in mock/test mode until one is added.</span>
+              </>
+            )}
+          </div>
+
+          <form onSubmit={handleSave} className="space-y-3">
+            <label className="block text-sm font-medium">
+              {status?.configured ? "Replace key" : "Add your Paystack secret key"}
+            </label>
+            <input
+              type="password"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="sk_live_xxxxxxxxxxxxxxxxxxxx"
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full rounded-md border border-charcoal/20 p-2.5 font-mono text-sm outline-none focus:border-olive"
+            />
+            <button
+              type="submit"
+              disabled={saving || !key.trim()}
+              className="rounded-md bg-olive px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-olive/90 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Key"}
+            </button>
+          </form>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -371,6 +488,8 @@ export default function AdminSettingsPage() {
           Delivery zones, pricing, and free-delivery options now live in <span className="font-medium text-charcoal">Admin → Delivery</span> — add, edit, or hide options there and checkout picks it up immediately.
         </p>
       </section>
+
+      <PaymentsSection />
 
       <BrandingSection />
     </div>

@@ -46,6 +46,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Third-party API credentials the owner enters themselves (e.g. their
+    // Paystack secret key, via Admin -> Settings -> Payments). No client can
+    // ever read or write this directly — not even the signed-in owner's own
+    // browser. Only the setPaystackKey/getPaystackKeyStatus Cloud Functions
+    // (Admin SDK) touch it; getPaystackKeyStatus returns a masked preview,
+    // never the raw value.
+    match /secrets/{docId} {
+      allow read, write: if false;
+    }
+
     // Orders — Staff can view (POS + fulfillment queue), only Owner can
     // change fulfillment status. Creation always goes through a Cloud
     // Function (initializeCheckout or recordPosSale) for price/stock
