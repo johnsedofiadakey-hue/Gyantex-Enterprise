@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronLeft, ChevronRight, Minus, Plus, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, MessageCircle, Minus, Plus, X } from "lucide-react";
+import { WHATSAPP_NUMBER } from "@/lib/config";
 import {
   getOptionValueLabel,
   getOptionValuePrice,
@@ -329,9 +330,18 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
 
           <div className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
             {quoteProduct ? (
-              <div className="rounded-xl border border-dashed border-charcoal/20 bg-soft-grey px-5 py-4 text-center text-sm text-charcoal/50">
-                Price coming soon
-              </div>
+              <a
+                href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                  `Hi Gyantex Enterprise, I'd like a quote for ${product.name}.`
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => trackEvent("whatsapp_quote_request", { productId: product.id })}
+                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-sm font-semibold text-white transition hover:bg-[#25D366]/90"
+              >
+                <MessageCircle size={18} />
+                Request a Quote on WhatsApp
+              </a>
             ) : (
               <button
                 onClick={handleAdd}
