@@ -204,6 +204,105 @@ async function sendOrderConfirmationEmail(order: admin.firestore.DocumentData, r
 }
 
 /**
+ * Finalizes a paid order: marks it paid, permanently deducts the stock that
+ * was reserved at checkout, and sends the confirmation SMS/email + admin
+ * alert — but only the first time. If the order is already 'paid' (e.g. the
+ * webhook fires twice, or the webhook and the confirmation-page verification
+ * below both resolve it), this is a no-op that skips re-sending
+ * notifications — Paystack retries webhook deliveries, so without this guard
+ * a customer could get the same confirmation SMS more than once.
+ * Returns null if the order doesn't exist at all.
+ */
+async function finalizeOrderPayment(reference: string): Promise<{ order: FirebaseFirestore.DocumentData; justPaid: boolean } | null> {
+  const orderRef = db.collection('orders').doc(reference);
+
+  const result = await db.runTransaction(async (t) => {
+    const doc = await t.get(orderRef);
+    if (!doc.exists) return null;
+
+    const orderData = doc.data()!;
+    if (orderData.status === 'paid') {
+      return { order: orderData, justPaid: false };
+    }
+
+    const items: CartItemInput[] = orderData.items || [];
+    const productRefs = items.map((item) => db.collection('products').doc(item.productId));
+    const productSnaps = await Promise.all(productRefs.map((ref) => t.get(ref)));
+
+    // 1. Mark order as paid
+    t.update(orderRef, { status: 'paid', paidAt: admin.firestore.FieldValue.serverTimestamp() });
+
+    // 2. Finalize inventory: permanently deduct stock, release the matching reservation.
+    productSnaps.forEach((snap, i) => {
+      if (!snap.exists) return;
+      const productData = snap.data() as ProductPriceData;
+      if (!shouldTrackInventory(productData)) return;
+      const unitsToDeduct = computeUnitsForItem(items[i]);
+      t.update(snap.ref, {
+        stockUnits: admin.firestore.FieldValue.increment(-unitsToDeduct),
+        reservedUnits: admin.firestore.FieldValue.increment(-unitsToDeduct),
+      });
+    });
+
+    return { order: { ...orderData, status: 'paid' }, justPaid: true };
+  });
+
+  if (result?.justPaid) {
+    const finalOrder = result.order;
+    const orderLabel = finalOrder.orderNumber || reference;
+    const itemCount = (finalOrder.items || []).reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 0), 0);
+
+    if (finalOrder.customer?.phone) {
+      const trackingUrl = finalOrder.confirmToken ? buildTrackingUrl(reference, finalOrder.confirmToken) : '';
+      await sendSMS(
+        finalOrder.customer.phone,
+        `Hi ${finalOrder.customer.firstName}, your payment for order ${orderLabel} (${itemCount} item${itemCount === 1 ? '' : 's'}, GHS ${(finalOrder.totalAmount || 0).toFixed(2)}) is confirmed! We'll notify you when it ships.` +
+        (trackingUrl ? ` Track it: ${trackingUrl}` : '') +
+        ` - Gyantex Enterprise`
+      );
+    }
+    await sendOrderConfirmationEmail(finalOrder, reference);
+
+    // Notify Gyantex — a paid order needs fabric, printing, and delivery arranged.
+    await sendSMS(
+      ADMIN_NOTIFY_PHONE,
+      `New paid order ${orderLabel}: ${itemCount} item${itemCount === 1 ? '' : 's'} from ${finalOrder.customer?.firstName || 'a customer'}, ` +
+      `GHS ${(finalOrder.totalAmount || 0).toFixed(2)}. Check the admin panel to prepare it.`
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Asks Paystack directly whether a transaction actually succeeded — the
+ * authoritative source, independent of whether their webhook ever reached
+ * us. Used as a fallback when a customer lands on the confirmation page
+ * before (or without) the webhook arriving, so a real payment doesn't stay
+ * stuck showing "processing" just because the webhook was delayed, never
+ * configured, or dropped. Returns 'other' (treated as "keep waiting") if
+ * Paystack isn't configured or the call itself fails — never guesses success.
+ */
+async function verifyPaystackTransaction(reference: string): Promise<'success' | 'failed' | 'other'> {
+  const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
+  if (!PAYSTACK_SECRET) return 'other';
+
+  try {
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` } }
+    );
+    const status = response.data?.data?.status;
+    if (status === 'success') return 'success';
+    if (status === 'failed' || status === 'abandoned') return 'failed';
+    return 'other';
+  } catch (error) {
+    console.error('Paystack verify error', error);
+    return 'other';
+  }
+}
+
+/**
  * Releases a pending order's stock reservation (e.g. payment failed or expired)
  * and marks the order accordingly. No-ops if the order was already resolved
  * (paid, or already released) — safe to call more than once.
@@ -414,66 +513,11 @@ export const paystackWebhook = functions.https.onRequest(async (req, res) => {
 
   if (event.event === 'charge.success') {
     const reference = event.data.reference; // This is our Order ID
-    const orderRef = db.collection('orders').doc(reference);
-
     try {
-      const finalOrder = await db.runTransaction(async (t) => {
-        const doc = await t.get(orderRef);
-        if (!doc.exists) throw new Error("Order not found");
-
-        const orderData = doc.data()!;
-        if (orderData.status === 'paid') {
-          return orderData; // already processed — idempotent no-op
-        }
-
-        const items: CartItemInput[] = orderData.items || [];
-        const productRefs = items.map((item) => db.collection('products').doc(item.productId));
-        const productSnaps = await Promise.all(productRefs.map((ref) => t.get(ref)));
-
-        // 1. Mark order as paid
-        t.update(orderRef, { status: 'paid', paidAt: admin.firestore.FieldValue.serverTimestamp() });
-
-        // 2. Finalize inventory: permanently deduct stock, release the matching reservation.
-        productSnaps.forEach((snap, i) => {
-          if (!snap.exists) return;
-          const productData = snap.data() as ProductPriceData;
-          if (!shouldTrackInventory(productData)) return;
-          const unitsToDeduct = computeUnitsForItem(items[i]);
-          t.update(snap.ref, {
-            stockUnits: admin.firestore.FieldValue.increment(-unitsToDeduct),
-            reservedUnits: admin.firestore.FieldValue.increment(-unitsToDeduct),
-          });
-        });
-
-        return orderData;
-      });
-
-      // 3. Notify the customer
-      const orderLabel = finalOrder?.orderNumber || reference;
-      if (finalOrder?.customer?.phone) {
-        const trackingUrl = finalOrder.confirmToken ? buildTrackingUrl(reference, finalOrder.confirmToken) : '';
-        const itemCount = (finalOrder.items || []).reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 0), 0);
-        await sendSMS(
-          finalOrder.customer.phone,
-          `Hi ${finalOrder.customer.firstName}, your payment for order ${orderLabel} (${itemCount} item${itemCount === 1 ? '' : 's'}, GHS ${(finalOrder.totalAmount || 0).toFixed(2)}) is confirmed! We'll notify you when it ships.` +
-          (trackingUrl ? ` Track it: ${trackingUrl}` : '') +
-          ` - Gyantex Enterprise`
-        );
+      const result = await finalizeOrderPayment(reference);
+      if (!result) {
+        console.warn('Webhook charge.success for unknown order', reference);
       }
-      if (finalOrder) {
-        await sendOrderConfirmationEmail(finalOrder, reference);
-      }
-
-      // 4. Notify Gyantex — a paid order needs fabric, printing, and delivery arranged.
-      if (finalOrder) {
-        const itemCount = (finalOrder.items || []).reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 0), 0);
-        await sendSMS(
-          ADMIN_NOTIFY_PHONE,
-          `New paid order ${orderLabel}: ${itemCount} item${itemCount === 1 ? '' : 's'} from ${finalOrder.customer?.firstName || 'a customer'}, ` +
-          `GHS ${(finalOrder.totalAmount || 0).toFixed(2)}. Check the admin panel to prepare it.`
-        );
-      }
-
       res.status(200).send('Success');
     } catch (err) {
       console.error("Webhook processing error", err);
@@ -531,9 +575,27 @@ export const getOrderStatus = functions.https.onCall(async (data) => {
     throw new functions.https.HttpsError('not-found', 'Order not found');
   }
 
-  const order = snap.data()!;
+  let order = snap.data()!;
   if (order.confirmToken !== token) {
     throw new functions.https.HttpsError('permission-denied', 'Invalid confirmation link');
+  }
+
+  // The webhook is the primary way an order gets marked paid, but it can be
+  // delayed, not yet registered in the Paystack dashboard, or dropped — so
+  // while the customer is sitting on the confirmation page waiting, ask
+  // Paystack directly rather than leaving them stuck on "processing" for a
+  // payment that actually went through. This never trusts the client's own
+  // claim of success — only Paystack's authenticated API response decides.
+  if (order.status === 'pending_payment') {
+    const verified = await verifyPaystackTransaction(orderId);
+    if (verified === 'success') {
+      const result = await finalizeOrderPayment(orderId);
+      if (result) order = result.order;
+    } else if (verified === 'failed') {
+      await releaseReservation(orderId, 'failed');
+      const refreshed = await db.collection('orders').doc(orderId).get();
+      order = refreshed.data()!;
+    }
   }
 
   return {
