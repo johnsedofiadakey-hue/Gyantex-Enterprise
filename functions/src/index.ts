@@ -150,8 +150,12 @@ async function getDeliveryFeeMap(): Promise<Record<string, number>> {
 }
 
 /** The one-tap link sent by SMS/email so a customer can check status without re-entering anything. */
+// Query param is "t", not "token" — mNotify's fraud filter blocks any SMS
+// containing a link with a literal "token=" parameter (confirmed by testing
+// directly against their API: the identical link with the param renamed to
+// "t=" sends fine). Keep this short param name in both places below.
 function buildTrackingUrl(orderId: string, token: string): string {
-  return SITE_URL ? `${SITE_URL}/track-order?orderId=${orderId}&token=${token}` : '';
+  return SITE_URL ? `${SITE_URL}/track-order?orderId=${orderId}&t=${token}` : '';
 }
 
 let cachedTransporter: nodemailer.Transporter | null = null;
@@ -229,8 +233,15 @@ async function finalizeOrderPayment(reference: string): Promise<{ order: Firebas
     const productRefs = items.map((item) => db.collection('products').doc(item.productId));
     const productSnaps = await Promise.all(productRefs.map((ref) => t.get(ref)));
 
-    // 1. Mark order as paid
-    t.update(orderRef, { status: 'paid', paidAt: admin.firestore.FieldValue.serverTimestamp() });
+    // 1. Mark order as paid and move fulfillment straight to "processing" —
+    // payment confirmation is what starts the work, so there's no reason for
+    // the tracker to sit on "Received" until a staff member manually bumps
+    // it later.
+    t.update(orderRef, {
+      status: 'paid',
+      paidAt: admin.firestore.FieldValue.serverTimestamp(),
+      fulfillmentStatus: 'processing',
+    });
 
     // 2. Finalize inventory: permanently deduct stock, release the matching reservation.
     productSnaps.forEach((snap, i) => {
@@ -244,7 +255,7 @@ async function finalizeOrderPayment(reference: string): Promise<{ order: Firebas
       });
     });
 
-    return { order: { ...orderData, status: 'paid' }, justPaid: true };
+    return { order: { ...orderData, status: 'paid', fulfillmentStatus: 'processing' }, justPaid: true };
   });
 
   if (result?.justPaid) {
@@ -256,7 +267,7 @@ async function finalizeOrderPayment(reference: string): Promise<{ order: Firebas
       const trackingUrl = finalOrder.confirmToken ? buildTrackingUrl(reference, finalOrder.confirmToken) : '';
       await sendSMS(
         finalOrder.customer.phone,
-        `Hi ${finalOrder.customer.firstName}, your payment for order ${orderLabel} (${itemCount} item${itemCount === 1 ? '' : 's'}, GHS ${(finalOrder.totalAmount || 0).toFixed(2)}) is confirmed! We'll notify you when it ships.` +
+        `Hi ${finalOrder.customer.firstName}, your order ${orderLabel} (${itemCount} item${itemCount === 1 ? '' : 's'}, GHS ${(finalOrder.totalAmount || 0).toFixed(2)}) is confirmed and being processed.` +
         (trackingUrl ? ` Track it: ${trackingUrl}` : '') +
         ` - Gyantex Enterprise`
       );
@@ -437,7 +448,7 @@ export const initializeCheckout = functions.https.onCall(async (data) => {
   }
 
   const { total: secureTotalAmount } = computeOrderTotals(items, productsById, deliveryZone, deliveryFeeMap);
-  const callbackUrl = origin ? `${origin}/order-confirmation?reference=${orderId}&token=${confirmToken}` : undefined;
+  const callbackUrl = origin ? `${origin}/order-confirmation?reference=${orderId}&t=${confirmToken}` : undefined;
 
   const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || functions.config().paystack?.secret;
 
@@ -986,13 +997,18 @@ export const notifyOnFulfillmentChange = onDocumentUpdated('orders/{orderId}', a
   const itemCount = (after.items || []).reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 0), 0);
   const itemSummary = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
 
+  const isPickup = after.deliveryZone === 'pickup';
+
   const message =
     after.fulfillmentStatus === 'shipped'
       ? `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) is on its way!` +
         (trackingUrl ? ` Track it: ${trackingUrl}` : '') +
         ` - Gyantex Enterprise`
-      : `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been delivered. Thank you for choosing Gyantex Enterprise!` +
-        (trackingUrl ? ` Details: ${trackingUrl}` : '');
+      : isPickup
+        ? `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been picked up. Thank you for choosing Gyantex Enterprise!` +
+          (trackingUrl ? ` Details: ${trackingUrl}` : '')
+        : `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been delivered. Thank you for choosing Gyantex Enterprise!` +
+          (trackingUrl ? ` Details: ${trackingUrl}` : '');
 
   await sendSMS(after.customer.phone, message);
 });

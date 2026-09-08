@@ -14,7 +14,7 @@ import BrandMark from "@/components/BrandMark";
 function TrackOrderContent() {
   const searchParams = useSearchParams();
   const linkOrderId = searchParams.get("orderId");
-  const linkToken = searchParams.get("token");
+  const linkToken = searchParams.get("t") || searchParams.get("token");
   const hasTrackingLink = Boolean(linkOrderId && linkToken);
 
   const [orderNumber, setOrderNumber] = useState("");

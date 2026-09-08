@@ -14,14 +14,24 @@ export interface OrderStatusData {
   customerFirstName?: string;
 }
 
-const FULFILLMENT_STEPS: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
+const DELIVERY_STEPS: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
   { key: "pending", label: "Received", icon: CheckCircle2 },
   { key: "processing", label: "Preparing", icon: Package },
   { key: "shipped", label: "On the Way", icon: Truck },
   { key: "delivered", label: "Delivered", icon: Home },
 ];
 
-function FulfillmentTracker({ current }: { current: OrderStatusData["fulfillmentStatus"] }) {
+// Pickup orders never go through a "shipped" leg — showing that step would
+// otherwise render as complete the moment the order is marked picked up,
+// since it sits before "delivered" in the fixed 4-step list.
+const PICKUP_STEPS: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
+  { key: "pending", label: "Received", icon: CheckCircle2 },
+  { key: "processing", label: "Preparing", icon: Package },
+  { key: "delivered", label: "Picked Up", icon: Home },
+];
+
+function FulfillmentTracker({ current, isPickup }: { current: OrderStatusData["fulfillmentStatus"]; isPickup: boolean }) {
+  const FULFILLMENT_STEPS = isPickup ? PICKUP_STEPS : DELIVERY_STEPS;
   const currentIndex = FULFILLMENT_STEPS.findIndex((step) => step.key === current);
 
   return (
@@ -96,7 +106,9 @@ export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
         {order.status === "quote_requested" && "Gyantex will review the brief and confirm fabric, quantity, pricing, delivery, and timeline on WhatsApp."}
       </p>
 
-      {order.status === "paid" && <FulfillmentTracker current={order.fulfillmentStatus ?? "pending"} />}
+      {order.status === "paid" && (
+        <FulfillmentTracker current={order.fulfillmentStatus ?? "pending"} isPickup={order.deliveryZone === "pickup"} />
+      )}
 
       <div className="mb-6 mt-6 space-y-2 border-t border-soft-grey pt-4 text-left">
         {order.items?.map((item, index) => (

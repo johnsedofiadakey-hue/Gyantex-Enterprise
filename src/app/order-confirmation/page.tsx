@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, XCircle } from "lucide-react";
+import { ArrowLeft, Check, Copy, XCircle } from "lucide-react";
 import { functions } from "@/lib/firebase";
 import { httpsCallable } from "firebase/functions";
 import { useCartStore } from "@/store/useCartStore";
@@ -13,11 +13,28 @@ import OrderStatusCard, { type OrderStatusData } from "@/components/OrderStatusC
 function OrderConfirmationContent() {
   const searchParams = useSearchParams();
   const reference = searchParams.get("reference") ?? searchParams.get("trxref");
-  const token = searchParams.get("token");
+  const token = searchParams.get("t") || searchParams.get("token");
   const clearCart = useCartStore((state) => state.clearCart);
 
   const [state, setState] = useState<"loading" | "found" | "error">(reference && token ? "loading" : "error");
   const [order, setOrder] = useState<OrderStatusData | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const trackingUrl =
+    reference && token && typeof window !== "undefined"
+      ? `${window.location.origin}/track-order?orderId=${reference}&t=${token}`
+      : "";
+
+  const copyTrackingLink = async () => {
+    if (!trackingUrl) return;
+    try {
+      await navigator.clipboard.writeText(trackingUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable — the link is still visible to copy manually.
+    }
+  };
 
   useEffect(() => {
     if (!reference || !token) return;
@@ -79,6 +96,30 @@ function OrderConfirmationContent() {
         {state === "found" && order && (
           <div className="flex w-full max-w-md flex-col items-center gap-4">
             <OrderStatusCard order={order} />
+
+            {trackingUrl && (
+              <div className="w-full bg-white p-4 shadow-sm">
+                <p className="mb-2 text-xs font-medium text-charcoal/60">
+                  Save this link to check your order status anytime — we also texted it to you.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={trackingUrl}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="min-w-0 flex-1 truncate rounded-md border border-charcoal/15 bg-soft-grey p-2.5 text-xs text-charcoal/70 outline-none"
+                  />
+                  <button
+                    onClick={copyTrackingLink}
+                    className="flex shrink-0 items-center gap-1.5 rounded-md bg-charcoal px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-charcoal/85"
+                  >
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             <Link href="/" className="rounded-md bg-olive px-8 py-3 text-sm font-semibold text-white hover:bg-olive/90">
               Continue browsing
             </Link>
