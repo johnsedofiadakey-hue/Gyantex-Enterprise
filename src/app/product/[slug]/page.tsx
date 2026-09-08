@@ -20,9 +20,10 @@ const SITE_URL = "https://gyantexenterpr1se.web.app";
 // single product-page view is a fresh SSR invocation + Firestore read —
 // real cost and latency for a page whose content (price, photos, colors)
 // changes rarely. Stock/availability isn't rendered here at all (checkout
-// re-validates it server-side regardless), so a 60s-stale price/photo is
-// the only trade-off, same as the homepage.
-export const revalidate = 60;
+// re-validates it server-side regardless), so a brief stale window is the
+// only trade-off — kept short so an admin editing a product doesn't have to
+// wait to see it live.
+export const revalidate = 10;
 
 async function getProduct(slug: string): Promise<CatalogProduct | null> {
   try {

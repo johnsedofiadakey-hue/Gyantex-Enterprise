@@ -5,10 +5,11 @@ import HomeClient from "./HomeClient";
 
 // Without this, Next prerenders "/" once at build time and serves that same
 // static HTML forever — any product the owner adds or edits in Admin would
-// never show up on the live storefront until the next deploy. Revalidating
-// every 60s keeps it near-instant (served from cache) while still picking up
-// admin edits within a minute, with no redeploy needed.
-export const revalidate = 60;
+// never show up on the live storefront until the next deploy. A short
+// window still gets nearly all the cost/speed benefit (real visitors rarely
+// hit the exact same second) while keeping the "I just edited this, why
+// isn't it showing" gap short enough that no one notices it while testing.
+export const revalidate = 10;
 
 async function getProducts(): Promise<CatalogProduct[]> {
   try {
