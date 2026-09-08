@@ -57,6 +57,11 @@ function ChangeEmailForm({ user }: { user: User }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Kept even after the toast fades — email change is a two-step, out-of-band
+  // flow (this account keeps signing in with the OLD email until the link in
+  // the new inbox is clicked), so a reminder that disappears in a few seconds
+  // reads as "did that even work?" the moment the owner navigates away and back.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const toast = useToastStore((state) => state.show);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,7 +72,8 @@ function ChangeEmailForm({ user }: { user: User }) {
       const credential = EmailAuthProvider.credential(user.email, currentPassword);
       await reauthenticateWithCredential(user, credential);
       await verifyBeforeUpdateEmail(user, newEmail);
-      toast(`Verification link sent to ${newEmail}. Your sign-in email changes once you confirm it.`, "success");
+      toast(`Verification link sent to ${newEmail}.`, "success");
+      setPendingEmail(newEmail);
       setCurrentPassword("");
       setNewEmail("");
     } catch (error) {
@@ -80,6 +86,15 @@ function ChangeEmailForm({ user }: { user: User }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <h4 className="text-sm font-medium">Change Email</h4>
+
+      {pendingEmail && (
+        <p className="rounded-md bg-gold/15 px-3 py-2 text-xs leading-5 text-[#6b4f10]">
+          Waiting on you to confirm <span className="font-medium">{pendingEmail}</span> — open the link we
+          sent there. Until you do, keep signing in with your current email. Didn&apos;t get it? Check spam,
+          or just send it again below.
+        </p>
+      )}
+
       <input
         type="email"
         required
