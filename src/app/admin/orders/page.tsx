@@ -30,7 +30,7 @@ interface Order {
   projectDetails?: { organization?: string; neededBy?: string; brief?: string };
   totalAmount: number;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus: "pending" | "processing" | "shipped" | "delivered";
+  fulfillmentStatus: "pending" | "processing" | "delivered";
   channel: "paystack" | "whatsapp" | "pos";
   paymentMethod?: "cash" | "mobile_money";
   staffEmail?: string;
@@ -58,7 +58,14 @@ const PAYMENT_BADGE: Record<Order["status"], { label: string; className: string 
   expired: { label: "Expired", className: "bg-charcoal/10 text-charcoal/60" },
 };
 
-const FULFILLMENT_OPTIONS: Order["fulfillmentStatus"][] = ["pending", "processing", "shipped", "delivered"];
+const FULFILLMENT_OPTIONS: Order["fulfillmentStatus"][] = ["pending", "processing", "delivered"];
+
+// "Delivered" reads as "Picked Up" for pickup orders — same underlying
+// status, just the label a pickup order actually earns.
+function fulfillmentLabel(status: Order["fulfillmentStatus"], isPickup: boolean) {
+  if (status === "delivered" && isPickup) return "Picked Up";
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
 
 export default function AdminOrdersPage() {
   const { role } = useAdminRole();
@@ -187,14 +194,16 @@ export default function AdminOrdersPage() {
                           <select
                             value={order.fulfillmentStatus}
                             onChange={(e) => updateFulfillment(order.id, e.target.value as Order["fulfillmentStatus"])}
-                            className="border border-charcoal/20 rounded-md px-2 py-1.5 text-sm bg-white outline-none focus:border-olive capitalize"
+                            className="border border-charcoal/20 rounded-md px-2 py-1.5 text-sm bg-white outline-none focus:border-olive"
                           >
                             {FULFILLMENT_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
+                              <option key={opt} value={opt}>{fulfillmentLabel(opt, order.deliveryZone === "pickup")}</option>
                             ))}
                           </select>
                         ) : (
-                          <span className="text-sm capitalize text-charcoal/70">{order.fulfillmentStatus}</span>
+                          <span className="text-sm text-charcoal/70">
+                            {fulfillmentLabel(order.fulfillmentStatus, order.deliveryZone === "pickup")}
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">

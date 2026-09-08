@@ -53,6 +53,31 @@ function OrderConfirmationContent() {
       });
   }, [clearCart, reference, token]);
 
+  // A customer often keeps this tab open while their order is prepared —
+  // poll quietly so a status change (payment confirming, or the owner
+  // marking it picked up/delivered) shows up on its own instead of looking
+  // stuck until they manually reload.
+  useEffect(() => {
+    if (state !== "found" || !order || !reference || !token) return;
+    if (order.status === "expired" || order.status === "failed") return;
+    if (order.status === "paid" && order.fulfillmentStatus === "delivered") return;
+
+    const getOrderStatus = httpsCallable(functions, "getOrderStatus");
+    const interval = setInterval(() => {
+      getOrderStatus({ orderId: reference, token })
+        .then((result) => {
+          const data = result.data as OrderStatusData;
+          setOrder(data);
+          if (data.status === "paid") clearCart();
+        })
+        .catch(() => {
+          // Transient failure — the page keeps showing its last-known state
+          // and tries again next tick.
+        });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [state, order, reference, token, clearCart]);
+
   return (
     <div className="flex min-h-screen flex-col bg-soft-grey">
       <header className="border-b border-soft-grey bg-white px-4 py-3 md:px-6 md:py-4">

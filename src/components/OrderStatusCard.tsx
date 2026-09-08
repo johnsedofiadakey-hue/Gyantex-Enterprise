@@ -1,12 +1,12 @@
 "use client";
 
-import { CheckCircle2, Clock, Home, Package, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Home, Package, XCircle } from "lucide-react";
 
 export interface OrderStatusData {
   orderId: string;
   orderNumber?: string | null;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus?: "pending" | "processing" | "shipped" | "delivered";
+  fulfillmentStatus?: "pending" | "processing" | "delivered";
   totalAmount: number;
   deliveryFee?: number;
   deliveryZone?: string;
@@ -14,24 +14,21 @@ export interface OrderStatusData {
   customerFirstName?: string;
 }
 
-const DELIVERY_STEPS: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
-  { key: "pending", label: "Received", icon: CheckCircle2 },
-  { key: "processing", label: "Preparing", icon: Package },
-  { key: "shipped", label: "On the Way", icon: Truck },
-  { key: "delivered", label: "Delivered", icon: Home },
-];
-
-// Pickup orders never go through a "shipped" leg — showing that step would
-// otherwise render as complete the moment the order is marked picked up,
-// since it sits before "delivered" in the fixed 4-step list.
-const PICKUP_STEPS: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
-  { key: "pending", label: "Received", icon: CheckCircle2 },
-  { key: "processing", label: "Preparing", icon: Package },
-  { key: "delivered", label: "Picked Up", icon: Home },
-];
+// Same 3 steps for every order — only the last label changes. There's no
+// separate "shipped" leg: Gyantex hands orders off directly (pickup or their
+// own delivery), so a transit step would just be a status nobody sets and no
+// SMS ever fires for. Two customer touchpoints — confirmed, then done — is
+// the whole design, not a partial view of a richer pipeline.
+function fulfillmentSteps(isPickup: boolean): Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> {
+  return [
+    { key: "pending", label: "Received", icon: CheckCircle2 },
+    { key: "processing", label: "Preparing", icon: Package },
+    { key: "delivered", label: isPickup ? "Picked Up" : "Delivered", icon: Home },
+  ];
+}
 
 function FulfillmentTracker({ current, isPickup }: { current: OrderStatusData["fulfillmentStatus"]; isPickup: boolean }) {
-  const FULFILLMENT_STEPS = isPickup ? PICKUP_STEPS : DELIVERY_STEPS;
+  const FULFILLMENT_STEPS = fulfillmentSteps(isPickup);
   const currentIndex = FULFILLMENT_STEPS.findIndex((step) => step.key === current);
 
   return (

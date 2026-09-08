@@ -12,7 +12,7 @@ interface Order {
   customer: { firstName: string; lastName: string };
   totalAmount: number;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus: "pending" | "processing" | "shipped" | "delivered";
+  fulfillmentStatus: "pending" | "processing" | "delivered";
   createdAt?: { toDate: () => Date };
 }
 

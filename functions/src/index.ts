@@ -969,11 +969,15 @@ export const recordPosSale = functions.https.onCall(async (data: PosSaleInput, c
 
 /**
  * 11. Notify On Fulfillment Change
- * Fires whenever staff move an order to "shipped" or "delivered" in
+ * Every order gets exactly two customer SMS: one when payment is confirmed
+ * (sent from finalizeOrderPayment) and one when it's actually done — this
+ * fires that second one, the moment staff mark an order "delivered" in
  * Admin → Orders (works for both web/Paystack and POS orders, since it
  * watches the orders collection directly rather than a specific creation
- * path). Texts the customer only when the fulfillment status actually
- * changed and a phone number is on file.
+ * path). Deliberately not wired to "processing" or any middle state — two
+ * touchpoints is the whole point, not a running commentary. Wording adapts
+ * to "picked up" vs "delivered" based on the order's delivery zone, but
+ * it's the same one SMS either way.
  *
  * This one is a 2nd-gen (Eventarc) trigger, not v1 like the rest of this
  * file — this project's Firestore database lives in the multi-region
@@ -988,7 +992,7 @@ export const notifyOnFulfillmentChange = onDocumentUpdated('orders/{orderId}', a
   if (!before || !after) return;
 
   if (before.fulfillmentStatus === after.fulfillmentStatus) return;
-  if (after.fulfillmentStatus !== 'shipped' && after.fulfillmentStatus !== 'delivered') return;
+  if (after.fulfillmentStatus !== 'delivered') return;
   if (!after.customer?.phone) return;
 
   const orderId = event.params.orderId;
@@ -996,19 +1000,13 @@ export const notifyOnFulfillmentChange = onDocumentUpdated('orders/{orderId}', a
   const trackingUrl = after.confirmToken ? buildTrackingUrl(orderId, after.confirmToken) : '';
   const itemCount = (after.items || []).reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 0), 0);
   const itemSummary = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
-
   const isPickup = after.deliveryZone === 'pickup';
 
-  const message =
-    after.fulfillmentStatus === 'shipped'
-      ? `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) is on its way!` +
-        (trackingUrl ? ` Track it: ${trackingUrl}` : '') +
-        ` - Gyantex Enterprise`
-      : isPickup
-        ? `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been picked up. Thank you for choosing Gyantex Enterprise!` +
-          (trackingUrl ? ` Details: ${trackingUrl}` : '')
-        : `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been delivered. Thank you for choosing Gyantex Enterprise!` +
-          (trackingUrl ? ` Details: ${trackingUrl}` : '');
+  const message = isPickup
+    ? `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been picked up. Thank you for choosing Gyantex Enterprise!` +
+      (trackingUrl ? ` Details: ${trackingUrl}` : '')
+    : `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been delivered. Thank you for choosing Gyantex Enterprise!` +
+      (trackingUrl ? ` Details: ${trackingUrl}` : '');
 
   await sendSMS(after.customer.phone, message);
 });

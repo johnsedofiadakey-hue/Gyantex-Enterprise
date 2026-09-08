@@ -54,6 +54,35 @@ function TrackOrderContent() {
     }
   };
 
+  // A customer often leaves this page open while their order is being
+  // prepared — poll quietly in the background so a status change (e.g. the
+  // owner marking it picked up) shows up on its own instead of looking
+  // stuck until they manually reload.
+  useEffect(() => {
+    if (state !== "found" || !order) return;
+    if (order.status !== "paid" || order.fulfillmentStatus === "delivered") return;
+
+    const refresh = async () => {
+      try {
+        if (hasTrackingLink) {
+          const getOrderStatus = httpsCallable(functions, "getOrderStatus");
+          const result = await getOrderStatus({ orderId: linkOrderId, token: linkToken });
+          setOrder(result.data as OrderStatusData);
+        } else {
+          const trackOrder = httpsCallable(functions, "trackOrder");
+          const result = await trackOrder({ orderNumber: order.orderNumber || orderNumber.trim(), phone: phone.trim() });
+          setOrder(result.data as OrderStatusData);
+        }
+      } catch {
+        // A transient failure here just means we try again next tick —
+        // the page already has a good last-known state to show.
+      }
+    };
+
+    const interval = setInterval(refresh, 15000);
+    return () => clearInterval(interval);
+  }, [state, order, hasTrackingLink, linkOrderId, linkToken, orderNumber, phone]);
+
   return (
     <div className="min-h-screen bg-soft-grey flex flex-col">
       <header className="bg-white border-b border-soft-grey px-4 py-3 md:px-6 md:py-4">
