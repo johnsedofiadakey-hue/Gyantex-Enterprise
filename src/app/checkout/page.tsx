@@ -79,7 +79,14 @@ export default function CheckoutPage() {
       try {
         const snap = await getDocs(query(collection(db, "deliveryZones"), orderBy("order", "asc")));
         const live = snap.docs.map((d) => ({ id: d.id, ...d.data() } as DeliveryZone)).filter((z) => z.active !== false);
-        if (live.length > 0) setZones(live);
+        if (live.length > 0) {
+          setZones(live);
+          // The default selection assumes a "pickup" zone exists, since it
+          // normally always does — but if the owner ever deletes or hides
+          // it, fall back to whatever's actually first in the live list so
+          // the form never sits on a selection nothing on screen matches.
+          setDeliveryZone((current) => (live.some((z) => z.id === current) ? current : live[0].id));
+        }
       } catch (error) {
         console.error("Failed to load delivery options", error);
       }

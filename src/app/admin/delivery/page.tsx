@@ -112,6 +112,10 @@ export default function AdminDeliveryPage() {
   };
 
   const handleDelete = async (zone: DeliveryZone) => {
+    if (zone.id === "pickup") {
+      toast("This is the built-in pickup option — rename or deactivate it instead of deleting it.", "error");
+      return;
+    }
     if (!confirm(`Delete "${zone.label}"? Customers won't be able to select it at checkout anymore. This cannot be undone.`)) return;
     try {
       await deleteDoc(doc(db, "deliveryZones", zone.id));
@@ -165,6 +169,11 @@ export default function AdminDeliveryPage() {
                     <div className="flex items-center gap-2 font-medium">
                       <Truck size={14} className="text-charcoal/40" />
                       {zone.label}
+                      {zone.id === "pickup" && (
+                        <span className="rounded bg-charcoal/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-charcoal/50">
+                          Built-in
+                        </span>
+                      )}
                     </div>
                     <div className="mt-0.5 max-w-md text-xs text-charcoal/50">{zone.description}</div>
                   </td>
@@ -184,9 +193,11 @@ export default function AdminDeliveryPage() {
                       <button onClick={() => openEdit(zone)} className="text-charcoal/50 hover:text-olive" aria-label={`Edit ${zone.label}`}>
                         <Pencil size={16} />
                       </button>
-                      <button onClick={() => handleDelete(zone)} className="text-charcoal/50 hover:text-terracotta" aria-label={`Delete ${zone.label}`}>
-                        <Trash2 size={16} />
-                      </button>
+                      {zone.id !== "pickup" && (
+                        <button onClick={() => handleDelete(zone)} className="text-charcoal/50 hover:text-terracotta" aria-label={`Delete ${zone.label}`}>
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

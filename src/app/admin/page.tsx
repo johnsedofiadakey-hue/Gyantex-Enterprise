@@ -9,6 +9,7 @@ import { AlertTriangle } from "lucide-react";
 interface Order {
   id: string;
   orderId: string;
+  orderNumber?: string;
   customer: { firstName: string; lastName: string };
   totalAmount: number;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
@@ -57,7 +58,6 @@ export default function AdminDashboard() {
 
   const paidInRange = inRange.filter((o) => o.status === "paid");
   const totalSales = paidInRange.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const quoteRequests = orders.filter((o) => o.status === "quote_requested").length;
   const pendingOrders = orders.filter((o) => o.status === "paid" && o.fulfillmentStatus === "pending").length;
   const stockProducts = products.filter((p) => p.trackInventory !== false && p.priceMode !== "quote" && typeof p.stockUnits === "number");
   const lowStock = stockProducts.filter((p) => (p.stockUnits ?? 0) > 0 && (p.stockUnits ?? 0) <= 4);
@@ -66,7 +66,6 @@ export default function AdminDashboard() {
   const stats = [
     { name: "Total Sales", value: `GHS ${totalSales.toFixed(2)}` },
     { name: "Orders", value: String(inRange.length) },
-    { name: "Quote Requests", value: String(quoteRequests), alert: quoteRequests > 0 },
     { name: "Pending Fulfillment", value: String(pendingOrders) },
     { name: "Low Stock Items", value: String(lowStock.length), alert: lowStock.length > 0 },
   ];
@@ -139,16 +138,16 @@ export default function AdminDashboard() {
               {recentOrders.map((order) => (
                 <div key={order.id} className="flex justify-between items-center text-sm">
                   <div>
-                    <div className="font-medium text-olive">#{order.id.slice(0, 8)}</div>
+                    <div className="font-medium text-olive">{order.orderNumber || `#${order.id.slice(0, 8)}`}</div>
                     <div className="text-charcoal/60">{order.customer?.firstName} {order.customer?.lastName}</div>
                   </div>
                   <div className="text-right">
                     <div className="font-semibold">GHS {order.totalAmount?.toFixed(2)}</div>
                     <div className="flex gap-2 justify-end mt-1">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                        order.status === 'paid' ? 'bg-olive/10 text-olive' : order.status === 'quote_requested' ? 'bg-charcoal text-white' : 'bg-terracotta/10 text-terracotta'
+                        order.status === 'paid' ? 'bg-olive/10 text-olive' : 'bg-terracotta/10 text-terracotta'
                       }`}>
-                        {order.status === "paid" ? "Paid" : order.status === "quote_requested" ? "Quote" : order.status.replace(/_/g, " ")}
+                        {order.status === "paid" ? "Paid" : order.status.replace(/_/g, " ")}
                       </span>
                     </div>
                   </div>

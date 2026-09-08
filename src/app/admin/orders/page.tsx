@@ -45,9 +45,6 @@ interface Order {
 
 const STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "quote_requested", label: "Quotes" },
-  { key: "paid", label: "Paid" },
-  { key: "whatsapp_pending", label: "WhatsApp" },
   { key: "pending_payment", label: "Pending Payment" },
   { key: "failed", label: "Failed / Expired" },
 ];
@@ -171,8 +168,8 @@ export default function AdminOrdersPage() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md bg-soft-grey">
-                            <ProductImage src={order.items?.[0]?.image} alt="" sizes="40px" className="object-cover" />
+                          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-soft-grey">
+                            <ProductImage src={order.items?.[0]?.image} alt="" sizes="64px" className="object-cover" />
                           </div>
                           <div>
                             <div className="flex items-center gap-1.5">
@@ -230,8 +227,8 @@ export default function AdminOrdersPage() {
                                 : "";
                               return (
                                 <div key={i} className="flex items-center gap-3">
-                                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-white">
-                                    <ProductImage src={item.image} alt={item.name} sizes="48px" className="object-cover" />
+                                  <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-white">
+                                    <ProductImage src={item.image} alt={item.name} sizes="96px" className="object-cover" />
                                   </div>
                                   <div className="flex flex-1 items-center justify-between gap-4 text-sm">
                                     <span>

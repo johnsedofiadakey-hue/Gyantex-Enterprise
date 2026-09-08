@@ -110,7 +110,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Main Content */}
       <main className="flex-1 ml-64 flex flex-col min-h-screen">
         <header className="bg-white border-b border-soft-grey h-16 flex items-center justify-between px-8 sticky top-0 z-40">
-          <h2 className="font-semibold capitalize">{pathname.split('/').pop() || 'Dashboard'}</h2>
+          <h2 className="font-semibold">{navItems.find((item) => item.href === pathname)?.name || 'Dashboard'}</h2>
           <div className="flex items-center gap-4">
             <div className="text-sm font-medium">{user?.email}</div>
             <div className="w-8 h-8 rounded-full bg-olive text-white flex items-center justify-center font-bold text-sm">
