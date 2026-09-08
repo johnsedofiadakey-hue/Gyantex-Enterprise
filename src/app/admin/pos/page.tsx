@@ -13,6 +13,7 @@ import {
   getProductColorOptions,
   getSelectedOptionsPrice,
   getSwatchStyle,
+  hasPricedOptionValue,
   isQuoteProduct,
   normalizeCatalogProduct,
 } from "@/lib/catalog";
@@ -380,6 +381,10 @@ function PosProductCard({
   );
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [quantity, setQuantity] = useState(1);
+  // Same rule as the storefront: a product with its own Customer-choices
+  // already prices each option independently, so the generic full/half
+  // toggle would just duplicate it with a forced 50% split.
+  const canSplit = !hasPricedOptionValue(product.optionGroups);
 
   const unitPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions) ?? product.price;
   const finalUnitPrice = purchaseType === "half" ? unitPrice / 2 : unitPrice;
@@ -475,17 +480,19 @@ function PosProductCard({
           ))}
 
           <div className="mb-3 flex items-center gap-4">
-            <div className="flex rounded-md border border-charcoal/15">
-              {(["full", "half"] as const).map((type) => (
-                <button
-                  key={type}
-                  onClick={() => setPurchaseType(type)}
-                  className={`px-3 py-1.5 text-xs font-medium ${purchaseType === type ? "bg-olive text-white" : "text-charcoal/60"}`}
-                >
-                  {type === "full" ? "Full Piece" : "Half Piece"}
-                </button>
-              ))}
-            </div>
+            {canSplit && (
+              <div className="flex rounded-md border border-charcoal/15">
+                {(["full", "half"] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setPurchaseType(type)}
+                    className={`px-3 py-1.5 text-xs font-medium ${purchaseType === type ? "bg-olive text-white" : "text-charcoal/60"}`}
+                  >
+                    {type === "full" ? "Full Piece" : "Half Piece"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <button onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="grid h-7 w-7 place-items-center rounded border border-charcoal/20 text-charcoal/60 hover:bg-soft-grey">
                 <Minus size={12} />

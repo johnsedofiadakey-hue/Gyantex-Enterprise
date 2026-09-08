@@ -26,6 +26,7 @@ import {
   getProductColorOptions,
   getSwatchStyle,
   getSelectedOptionsPrice,
+  hasPricedOptionValue,
   isQuoteProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
@@ -84,7 +85,11 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   }
 
   const quoteProduct = isQuoteProduct(product);
-  const canSplit = !quoteProduct && Boolean(product.unit);
+  // A product with its own Customer-choices (e.g. Cloth Length) already lets
+  // the owner price each option independently — showing the generic
+  // full/half toggle on top of that just duplicates it with a forced 50%
+  // split, so it only applies to products that don't define their own.
+  const canSplit = !quoteProduct && !hasPricedOptionValue(product.optionGroups);
   const effectivePurchaseType = canSplit ? purchaseType : "full";
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
   const basePrice = selectedOptionsPrice ?? product.price;
@@ -304,7 +309,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
                         purchaseType === option ? "border-olive bg-olive text-white" : "border-charcoal/15 bg-white hover:border-olive"
                       }`}
                     >
-                      {option === "full" ? `Full ${product.unit}` : `Half ${product.unit}`}
+                      {option === "full" ? `Full ${product.unit || "Piece"}` : `Half ${product.unit || "Piece"}`}
                     </button>
                   ))}
                 </div>

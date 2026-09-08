@@ -10,6 +10,7 @@ import {
   getProductColorOptions,
   getSelectedOptionsPrice,
   getSwatchStyle,
+  hasPricedOptionValue,
   isQuoteProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
@@ -67,6 +68,11 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   );
 
   const quoteProduct = isQuoteProduct(product);
+  // A product with its own Customer-choices (e.g. Cloth Length) already lets
+  // the owner price each option independently — showing the generic
+  // full/half toggle on top of that just duplicates it with a forced 50%
+  // split, so it only applies to products that don't define their own.
+  const canSplit = !quoteProduct && !hasPricedOptionValue(product.optionGroups);
   const colorOptions = getProductColorOptions(product);
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
   const fullPiecePrice = selectedOptionsPrice ?? product.price;
@@ -220,11 +226,11 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                 </div>
               )}
 
-              {!quoteProduct && (
+              {canSplit && (
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-medium">Piece</span>
-                    <span className="text-sm text-charcoal/50">{purchaseType === "full" ? "Full Piece (12 Yards)" : "Half Piece (6 Yards)"}</span>
+                    <span className="text-sm text-charcoal/50">{purchaseType === "full" ? "Full Piece" : "Half Piece"}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {(["full", "half"] as const).map((type) => (
