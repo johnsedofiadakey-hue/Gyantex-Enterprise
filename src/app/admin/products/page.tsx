@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
@@ -177,6 +177,23 @@ export default function AdminProductsPage() {
     setShowForm(true);
   };
 
+  // Best-effort cleanup for a photo that's no longer referenced by anything
+  // (replaced, or its product/color was deleted) — every upload path
+  // includes Date.now(), so a given URL is never shared between two
+  // different uploads and is always safe to remove once nothing points to
+  // it. Only touches real Storage URLs — the built-in catalog's local
+  // /images/... placeholders aren't Storage objects and are silently
+  // no-ops here (deleteObject just fails "not found," which we swallow).
+  // A failure never blocks the save/delete it's cleaning up after.
+  const deleteStorageImage = async (url?: string) => {
+    if (!url || !/^https:\/\/(firebasestorage\.googleapis\.com|storage\.googleapis\.com)\//.test(url)) return;
+    try {
+      await deleteObject(ref(storage, url));
+    } catch (error) {
+      console.warn("Couldn't clean up old product photo (non-fatal)", error);
+    }
+  };
+
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!form.name) {
@@ -252,7 +269,7 @@ export default function AdminProductsPage() {
           }))
           .filter((group) => group.label && group.values.length > 0),
         trackInventory,
-        stockUnits: trackInventory ? Number(form.stockUnits) || 0 : null,
+        stockUnits: trackInventory ? Math.max(0, Number(form.stockUnits) || 0) : null,
         featured: form.featured,
         imageUrl,
       };
@@ -260,6 +277,14 @@ export default function AdminProductsPage() {
       if (editing) {
         await updateDoc(doc(db, "products", editing.id), payload);
         toast("Product updated.", "success");
+
+        // Clean up any photo that was on this product before but isn't
+        // referenced by the version we just saved — a replaced main photo,
+        // a replaced color photo, or a color that got removed entirely.
+        const oldUrls = [editing.imageUrl, ...(editing.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
+        const newUrls = new Set([imageUrl, ...colorOptions.map((c) => c.image)].filter(Boolean) as string[]);
+        const orphaned = oldUrls.filter((url) => !newUrls.has(url));
+        await Promise.all(orphaned.map(deleteStorageImage));
       } else {
         await addDoc(collection(db, "products"), {
           ...payload,
@@ -282,6 +307,8 @@ export default function AdminProductsPage() {
     try {
       await deleteDoc(doc(db, "products", product.id));
       toast("Product deleted.", "success");
+      const urls = [product.imageUrl, ...(product.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
+      await Promise.all(urls.map(deleteStorageImage));
     } catch (error) {
       console.error(error);
       toast("Couldn't delete this product. Please try again.", "error");

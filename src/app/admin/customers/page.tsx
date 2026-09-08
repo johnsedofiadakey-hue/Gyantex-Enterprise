@@ -18,7 +18,6 @@ interface CustomerRow {
   phone: string;
   email?: string;
   orderCount: number;
-  quoteCount: number;
   totalSpent: number;
   lastOrderAt: Date | null;
   marketingOptIn: boolean;
@@ -44,16 +43,22 @@ export default function AdminCustomersPage() {
   }, []);
 
   const customers = useMemo(() => {
+    // "Orders" and "Last Order" only count orders that were actually paid
+    // for — an abandoned or failed checkout attempt isn't an order a
+    // customer placed, and counting it made someone who tried three times
+    // before succeeding look like a 3-order customer.
     const byPhone = new Map<string, CustomerRow>();
     for (const order of orders) {
       const phone = order.customer?.phone || "unknown";
-      const existing = byPhone.get(phone);
+      const paid = order.status === "paid";
       const orderDate = order.createdAt?.toDate?.() ?? null;
+      const existing = byPhone.get(phone);
       if (existing) {
-        existing.orderCount += 1;
-        if (order.status === "quote_requested") existing.quoteCount += 1;
-        if (order.status === "paid") existing.totalSpent += order.totalAmount || 0;
-        if (orderDate && (!existing.lastOrderAt || orderDate > existing.lastOrderAt)) existing.lastOrderAt = orderDate;
+        if (paid) {
+          existing.orderCount += 1;
+          existing.totalSpent += order.totalAmount || 0;
+          if (orderDate && (!existing.lastOrderAt || orderDate > existing.lastOrderAt)) existing.lastOrderAt = orderDate;
+        }
         if (order.customer?.marketingOptIn) existing.marketingOptIn = true;
       } else {
         byPhone.set(phone, {
@@ -61,10 +66,9 @@ export default function AdminCustomersPage() {
           name: `${order.customer?.firstName || ""} ${order.customer?.lastName || ""}`.trim() || "—",
           phone,
           email: order.customer?.email,
-          orderCount: 1,
-          quoteCount: order.status === "quote_requested" ? 1 : 0,
-          totalSpent: order.status === "paid" ? order.totalAmount || 0 : 0,
-          lastOrderAt: orderDate,
+          orderCount: paid ? 1 : 0,
+          totalSpent: paid ? order.totalAmount || 0 : 0,
+          lastOrderAt: paid ? orderDate : null,
           marketingOptIn: Boolean(order.customer?.marketingOptIn),
         });
       }
@@ -98,7 +102,6 @@ export default function AdminCustomersPage() {
                 <th className="px-6 py-3 font-medium">Customer</th>
                 <th className="px-6 py-3 font-medium">Contact</th>
                 <th className="px-6 py-3 font-medium">Orders</th>
-                <th className="px-6 py-3 font-medium">Quotes</th>
                 <th className="px-6 py-3 font-medium">Total Spent</th>
                 <th className="px-6 py-3 font-medium">Last Order</th>
                 <th className="px-6 py-3 font-medium">Marketing</th>
@@ -113,7 +116,6 @@ export default function AdminCustomersPage() {
                     {c.email && <div className="text-xs text-charcoal/50">{c.email}</div>}
                   </td>
                   <td className="px-6 py-3">{c.orderCount}</td>
-                  <td className="px-6 py-3">{c.quoteCount}</td>
                   <td className="px-6 py-3 font-medium">GHS {c.totalSpent.toFixed(2)}</td>
                   <td className="px-6 py-3 text-charcoal/60">{c.lastOrderAt ? c.lastOrderAt.toLocaleDateString() : "—"}</td>
                   <td className="px-6 py-3">
