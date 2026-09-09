@@ -643,13 +643,18 @@ export const getOrderStatus = functions.https.onCall(async (data) => {
 /**
  * 5. Track Order
  * Lets a customer look up an order any time after checkout — not just via
- * the one-time confirmation link — by proving they know both the order
- * reference and the phone number it was placed under.
+ * the one-time confirmation link — using the order number alone. Order
+ * numbers are short sequential codes (GYX-1042, GYX-1043, ...), so this is a
+ * deliberate simplicity-over-secrecy trade-off, not an oversight: this
+ * response is trimmed to only the fields OrderStatusCard actually renders
+ * (status + fulfillment step + item list), never the customer's phone,
+ * delivery address, or project brief — those still require the phone-gated
+ * getOrderStatus (via the SMS/email tracking link) or the admin panel.
  */
 export const trackOrder = functions.https.onCall(async (data) => {
-  const { orderNumber, phone } = data as { orderNumber?: string; phone?: string };
-  if (!orderNumber?.trim() || !phone?.trim()) {
-    throw new functions.https.HttpsError('invalid-argument', 'Enter your order number and phone number.');
+  const { orderNumber } = data as { orderNumber?: string };
+  if (!orderNumber?.trim()) {
+    throw new functions.https.HttpsError('invalid-argument', 'Enter your order number.');
   }
 
   const query = await db
@@ -664,29 +669,15 @@ export const trackOrder = functions.https.onCall(async (data) => {
   const snap = query.docs[0];
   const order = snap.data();
 
-  // Order numbers are short sequential codes (GYX-1042, GYX-1043, ...) —
-  // trivially guessable/enumerable. Without this check, anyone could pull
-  // any customer's name and delivery address just by trying numbers in
-  // sequence. Same generic "not found" error either way, so a wrong phone
-  // guess can't be used to confirm an order number is valid.
-  if (normalizeGhanaPhone(phone) !== normalizeGhanaPhone(order.customer?.phone || '')) {
-    throw new functions.https.HttpsError('not-found', "We couldn't find an order with that number.");
-  }
-
   return {
     orderId: snap.id,
     orderNumber: order.orderNumber || null,
     status: order.status,
     fulfillmentStatus: order.fulfillmentStatus,
     totalAmount: order.totalAmount,
-    deliveryFee: order.deliveryFee,
     deliveryZone: order.deliveryZone,
-    deliveryDetails: order.deliveryDetails || null,
-    projectDetails: order.projectDetails || null,
     items: order.items,
     customerFirstName: order.customer?.firstName || '',
-    createdAt: order.createdAt?.toMillis?.() ?? null,
-    channel: order.channel,
   };
 });
 
