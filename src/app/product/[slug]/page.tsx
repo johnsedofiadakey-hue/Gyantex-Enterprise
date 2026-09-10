@@ -16,14 +16,11 @@ import ProductDetailClient from "./ProductDetailClient";
 
 const SITE_URL = "https://gyantex.com";
 
-// Same reasoning as the homepage (src/app/page.tsx): without this, every
-// single product-page view is a fresh SSR invocation + Firestore read —
-// real cost and latency for a page whose content (price, photos, colors)
-// changes rarely. Stock/availability isn't rendered here at all (checkout
-// re-validates it server-side regardless), so a brief stale window is the
-// only trade-off — kept short so an admin editing a product doesn't have to
-// wait to see it live.
-export const revalidate = 10;
+// Same reasoning as the homepage (src/app/page.tsx) — a cached page can
+// serve stale content indefinitely on low traffic, since the CDN only
+// refreshes in the background for whoever visits *after* the one who
+// triggered it. Always-fetch-fresh avoids that for a catalog this small.
+export const dynamic = "force-dynamic";
 
 async function getProduct(slug: string): Promise<CatalogProduct | null> {
   try {

@@ -3,13 +3,14 @@ import { db } from "@/lib/firebase";
 import { DEFAULT_PRODUCTS, normalizeCatalogProduct, type CatalogProduct } from "@/lib/catalog";
 import HomeClient from "./HomeClient";
 
-// Without this, Next prerenders "/" once at build time and serves that same
-// static HTML forever — any product the owner adds or edits in Admin would
-// never show up on the live storefront until the next deploy. A short
-// window still gets nearly all the cost/speed benefit (real visitors rarely
-// hit the exact same second) while keeping the "I just edited this, why
-// isn't it showing" gap short enough that no one notices it while testing.
-export const revalidate = 10;
+// A cached/ISR page (even a short one) means: on low traffic, the CDN can
+// serve an arbitrarily old copy to whoever visits next and only refresh it
+// in the background for the visitor *after* that — so the owner adding a
+// product and immediately checking the live site is exactly the case that
+// sees stale content almost every time. This catalog is small and traffic
+// is light, so a Firestore read on every request is cheap; always-fresh
+// beats a caching optimization that actively undermines trust in the tool.
+export const dynamic = "force-dynamic";
 
 async function getProducts(): Promise<CatalogProduct[]> {
   try {
