@@ -60,21 +60,17 @@ function FulfillmentTracker({ current, isPickup }: { current: OrderStatusData["f
   );
 }
 
-// item.price is already the fully-resolved price at order time (base price,
-// or a priced Customer-choices selection) — item.priceMode is just a stale
-// copy of the product's base-price mode and can say "quote" even when the
-// item resolved to a real price via an option value.
-function isQuoteOrder(order: OrderStatusData) {
+function needsOrderReview(order: OrderStatusData) {
   return order.status === "quote_requested" || order.items?.some((item) => item.price <= 0);
 }
 
 function itemPriceLabel(item: OrderStatusData["items"][number]) {
-  if (item.price <= 0) return "Price not set yet";
+  if (item.price <= 0) return "Amount pending";
   return `GHS ${(item.price * item.quantity).toFixed(2)}`;
 }
 
 export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
-  const quoteOrder = isQuoteOrder(order);
+  const orderNeedsReview = needsOrderReview(order);
 
   return (
     <div className="w-full max-w-md bg-white p-8 text-center shadow-sm">
@@ -92,7 +88,7 @@ export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
         {order.status === "failed" && "Payment didn't go through"}
         {order.status === "expired" && "This order has expired"}
         {order.status === "whatsapp_pending" && "WhatsApp order received"}
-        {order.status === "quote_requested" && "Quote request received"}
+        {order.status === "quote_requested" && "Order needs review"}
       </h1>
       <p className="mb-2 text-sm leading-6 text-charcoal/60">
         {order.status === "paid" && "Your payment is confirmed and Gyantex is preparing your order."}
@@ -100,7 +96,7 @@ export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
         {order.status === "failed" && "Your card or MoMo payment was not completed, so nothing was charged."}
         {order.status === "expired" && "This order expired before payment completed."}
         {order.status === "whatsapp_pending" && "Gyantex will confirm this order with you on WhatsApp shortly."}
-        {order.status === "quote_requested" && "Gyantex will review the brief and confirm fabric, quantity, pricing, delivery, and timeline on WhatsApp."}
+        {order.status === "quote_requested" && "Gyantex is reviewing this older order and will contact you with the next step."}
       </p>
 
       {order.status === "paid" && (
@@ -117,8 +113,8 @@ export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
           </div>
         ))}
         <div className="flex justify-between gap-4 border-t border-soft-grey pt-2 text-sm font-semibold">
-          <span>{quoteOrder ? "Pricing" : "Total"}</span>
-          <span>{quoteOrder && !order.totalAmount ? "After quote" : `GHS ${order.totalAmount?.toFixed(2)}`}</span>
+          <span>{orderNeedsReview ? "Amount" : "Total"}</span>
+          <span>{orderNeedsReview && !order.totalAmount ? "Pending" : `GHS ${order.totalAmount?.toFixed(2)}`}</span>
         </div>
       </div>
 

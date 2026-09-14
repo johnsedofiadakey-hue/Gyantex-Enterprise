@@ -3,49 +3,47 @@ import { PICKUP_ADDRESS, SUPPORT_EMAIL, WHATSAPP_NUMBER } from "@/lib/config";
 
 export const metadata = {
   title: "Corrections & Refunds | Gyantex Enterprise",
-  description: "Correction and refund guidance for Gyantex Enterprise custom textile orders.",
+  description: "Correction and refund guidance for Gyantex Enterprise orders.",
 };
 
 export default function ReturnsPage() {
   return (
     <StaticPageLayout title="Corrections & Refunds">
       <p>
-        Gyantex Enterprise produces custom textile work after a quote and design confirmation. Because most orders are
-        made for a specific family, church, school, institution, or event, returns are handled differently from ordinary retail items.
+        Gyantex Enterprise sells textile cloth through this website. If there is a problem with an item you receive,
+        contact us quickly so we can inspect the order and help.
       </p>
 
-      <h2>Before Printing</h2>
+      <h2>Before Payment</h2>
       <p>
-        Review names, dates, portraits, logos, spelling, colors, and quantity carefully before approval. Once artwork
-        is approved for printing, changes may affect the timeline and final cost.
+        Check the item, color, piece option, quantity, delivery choice, and phone number carefully before payment.
       </p>
 
       <h2>What Qualifies</h2>
       <ul>
-        <li>The delivered cloth is materially different from the approved design</li>
-        <li>The print has a production fault that was not present in the approved proof</li>
-        <li>The quantity delivered does not match the confirmed paid order</li>
+        <li>The delivered item is materially different from the product ordered</li>
+        <li>The item has a production fault</li>
+        <li>The quantity delivered does not match the paid order</li>
       </ul>
 
       <h2>What Usually Does Not Qualify</h2>
       <ul>
-        <li>Approved spelling, date, portrait, or logo errors that were visible in the proof</li>
-        <li>Color differences caused by phone screen previews or uncalibrated reference images</li>
-        <li>Timeline changes caused by late artwork, late payment, or late approval</li>
+        <li>A change of mind after the item has been prepared or dispatched</li>
+        <li>Color differences caused by phone screen settings</li>
+        <li>Delays caused by an incomplete delivery address or unavailable recipient</li>
       </ul>
 
       <h2>How to Report a Problem</h2>
       <p>
         Message us on{" "}
         <a href={`https://wa.me/${WHATSAPP_NUMBER}`} target="_blank" rel="noreferrer">WhatsApp</a>{" "}
-        or email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with your request reference, photos of the issue,
-        and the approved design proof. We may ask you to bring the cloth to {PICKUP_ADDRESS} for inspection.
+        or email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with your order number and photos of the issue.
+        We may ask you to bring the cloth to {PICKUP_ADDRESS} for inspection.
       </p>
 
       <h2>Refunds or Corrections</h2>
       <p>
-        If the issue is confirmed, Gyantex may correct the order, reprint the affected portion, or refund an agreed
-        amount depending on the fault and production stage.
+        If the issue is confirmed, Gyantex may replace the affected item or refund an agreed amount depending on the fault.
       </p>
     </StaticPageLayout>
   );

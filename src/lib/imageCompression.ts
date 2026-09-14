@@ -12,7 +12,7 @@
  * view. */
 export async function compressImageForUpload(
   file: File,
-  { maxDimension = 1600, quality = 0.82 }: { maxDimension?: number; quality?: number } = {}
+  { maxDimension = 1200, quality = 0.74 }: { maxDimension?: number; quality?: number } = {}
 ): Promise<File> {
   if (!file.type.startsWith("image/") || file.type === "image/svg+xml" || file.type === "image/gif") {
     return file;

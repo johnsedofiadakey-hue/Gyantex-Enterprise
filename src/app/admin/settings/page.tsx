@@ -225,7 +225,23 @@ function PaymentsSection() {
   };
 
   useEffect(() => {
-    loadStatus();
+    let cancelled = false;
+    const getPaystackKeyStatus = httpsCallable(functions, "getPaystackKeyStatus");
+
+    void getPaystackKeyStatus()
+      .then((result) => {
+        if (!cancelled) setStatus(result.data as PaystackKeyStatus);
+      })
+      .catch((error) => {
+        console.error("Failed to load Paystack key status", error);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {

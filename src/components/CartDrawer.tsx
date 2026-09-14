@@ -14,11 +14,7 @@ interface CartDrawerProps {
 
 export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
   const cart = useCartStore();
-  // item.price is already the fully-resolved price (base price, or a priced
-  // Customer-choices selection) — item.priceMode is just a stale copy of the
-  // product's base-price mode and can say "quote" even when the item
-  // resolved to a real price via an option value.
-  const hasQuoteItems = cart.items.some((item) => item.price <= 0);
+  const hasUnavailableItems = cart.items.some((item) => item.price <= 0);
   const fixedSubtotal = cart.totalPrice();
 
   useEffect(() => {
@@ -86,7 +82,7 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                         </div>
                         <div className="mt-1 text-xs text-charcoal/55">
                           {item.price <= 0
-                            ? item.minimumOrder || "Custom quote"
+                            ? "Unavailable"
                             : `${item.color} | ${item.purchaseType === "half" ? "Half" : "Full"}`}
                         </div>
                         {item.selections && Object.keys(item.selections).length > 0 && (
@@ -114,7 +110,7 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                           </div>
                           <div className="text-sm font-semibold">
                             {item.price <= 0
-                              ? "Price not set yet"
+                            ? "Unavailable"
                               : `GHS ${(item.price * item.quantity).toFixed(2)}`}
                           </div>
                         </div>
@@ -129,18 +125,28 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
               <div className="mb-4 flex items-center justify-between text-sm">
                 <span className="text-charcoal/60">Subtotal</span>
                 <span className="font-semibold">
-                  {hasQuoteItems && fixedSubtotal === 0 ? "Price not set yet" : `GHS ${fixedSubtotal.toFixed(2)}`}
+                  {`GHS ${fixedSubtotal.toFixed(2)}`}
                 </span>
               </div>
               <div className="grid gap-3">
-                <Link
-                  href="/checkout"
-                  onClick={() => onOpenChange(false)}
-                  className="flex min-h-[48px] items-center justify-center gap-2 rounded-md bg-olive px-4 text-sm font-semibold text-white hover:bg-olive/90"
-                >
-                  <ShoppingBag size={16} />
-                  Checkout
-                </Link>
+                {hasUnavailableItems ? (
+                  <Link
+                    href="/cart"
+                    onClick={() => onOpenChange(false)}
+                    className="flex min-h-[48px] items-center justify-center gap-2 rounded-md bg-terracotta px-4 text-sm font-semibold text-white hover:bg-terracotta/90"
+                  >
+                    Remove unavailable item
+                  </Link>
+                ) : (
+                  <Link
+                    href="/checkout"
+                    onClick={() => onOpenChange(false)}
+                    className="flex min-h-[48px] items-center justify-center gap-2 rounded-md bg-olive px-4 text-sm font-semibold text-white hover:bg-olive/90"
+                  >
+                    <ShoppingBag size={16} />
+                    Checkout
+                  </Link>
+                )}
                 <Link
                   href="/cart"
                   onClick={() => onOpenChange(false)}

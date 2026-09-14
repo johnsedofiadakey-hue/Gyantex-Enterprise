@@ -1,6 +1,6 @@
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { DEFAULT_PRODUCTS, normalizeCatalogProduct, type CatalogProduct } from "@/lib/catalog";
+import { DEFAULT_PRODUCTS, isMarketplaceProduct, normalizeCatalogProduct, type CatalogProduct } from "@/lib/catalog";
 import HomeClient from "./HomeClient";
 
 // A cached/ISR page (even a short one) means: on low traffic, the CDN can
@@ -19,10 +19,11 @@ async function getProducts(): Promise<CatalogProduct[]> {
     const fetchedProducts = snapshot.docs.map((doc) =>
       normalizeCatalogProduct(doc.id, doc.data() as Partial<CatalogProduct>)
     );
-    return fetchedProducts.length > 0 ? fetchedProducts : DEFAULT_PRODUCTS;
+    const marketplaceProducts = fetchedProducts.filter(isMarketplaceProduct);
+    return marketplaceProducts.length > 0 ? marketplaceProducts : DEFAULT_PRODUCTS.filter(isMarketplaceProduct);
   } catch (error) {
     console.error("Error fetching Gyantex catalog", error);
-    return DEFAULT_PRODUCTS;
+    return DEFAULT_PRODUCTS.filter(isMarketplaceProduct);
   }
 }
 

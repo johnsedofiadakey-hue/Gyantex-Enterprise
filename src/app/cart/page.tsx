@@ -9,18 +9,12 @@ import Footer from "@/components/Footer";
 import KenteStripe from "@/components/KenteStripe";
 import ProductImage from "@/components/ProductImage";
 
-// item.price is already the fully-resolved price (base price, or a priced
-// Customer-choices selection, whichever applied) — that's the one true
-// signal here. item.priceMode is just a stale copy of the product's own
-// base-price mode at add-to-cart time, which is misleading on its own: a
-// product can be priceMode "quote" (no base price) while still resolving
-// to a real, non-zero item.price via a priced option value.
-function isQuoteItem(item: CartItem) {
+function isUnavailableItem(item: CartItem) {
   return item.price <= 0;
 }
 
 function itemPriceLabel(item: CartItem) {
-  if (isQuoteItem(item)) return "Price not set yet";
+  if (isUnavailableItem(item)) return "Unavailable";
   return `GHS ${(item.price * item.quantity).toFixed(2)}`;
 }
 
@@ -30,7 +24,7 @@ export default function CartPage() {
 
   if (!hydrated) return null;
 
-  const hasQuoteItems = cart.items.some(isQuoteItem);
+  const hasUnavailableItems = cart.items.some(isUnavailableItem);
   const fixedSubtotal = cart.totalPrice();
 
   return (
@@ -54,7 +48,7 @@ export default function CartPage() {
             <h1 className="font-serif text-3xl font-semibold md:text-5xl">Your cart</h1>
           </div>
           <p className="max-w-md text-sm leading-6 text-charcoal/60">
-            Review your items, then continue to checkout for pricing, design direction, and timeline.
+            Check your items, choose delivery, and pay securely.
           </p>
         </div>
 
@@ -94,8 +88,8 @@ export default function CartPage() {
                         </button>
                       </div>
                       <p className="mt-2 text-sm leading-6 text-charcoal/60">
-                        {isQuoteItem(item)
-                          ? item.minimumOrder || "Final pricing depends on quantity, fabric, artwork, and deadline."
+                        {isUnavailableItem(item)
+                          ? "This item is no longer available. Remove it to continue."
                           : `${item.color} | ${item.purchaseType === "half" ? "Half" : "Full"}`}
                       </p>
                       {item.selections && Object.keys(item.selections).length > 0 && (
@@ -135,7 +129,7 @@ export default function CartPage() {
                 <div className="flex justify-between gap-4">
                   <span className="text-charcoal/60">Subtotal</span>
                   <span className="font-semibold">
-                    {hasQuoteItems && fixedSubtotal === 0 ? "Price not set yet" : `GHS ${fixedSubtotal.toFixed(2)}`}
+                    {`GHS ${fixedSubtotal.toFixed(2)}`}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -143,16 +137,24 @@ export default function CartPage() {
                   <span className="text-right text-charcoal/60">Chosen at checkout</span>
                 </div>
               </div>
-              <p className="my-5 text-sm leading-6 text-charcoal/62">
-                Just your name, phone, and a delivery choice — takes under a minute.
-              </p>
-              <Link
-                href="/checkout"
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
-              >
-                <ShoppingBag size={18} />
-                Continue to Checkout
-              </Link>
+              {hasUnavailableItems ? (
+                <p className="my-5 rounded-xl bg-terracotta/10 p-4 text-sm leading-6 text-terracotta">
+                  Remove unavailable items before checkout.
+                </p>
+              ) : (
+                <>
+                  <p className="my-5 text-sm leading-6 text-charcoal/62">
+                    Just your name, phone, and a delivery choice — takes under a minute.
+                  </p>
+                  <Link
+                    href="/checkout"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
+                  >
+                    <ShoppingBag size={18} />
+                    Continue to Checkout
+                  </Link>
+                </>
+              )}
             </aside>
           </div>
         )}

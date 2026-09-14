@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
@@ -8,7 +9,7 @@ import {
 import {
   getDefaultProduct,
   getPriceLabel,
-  isQuoteProduct,
+  isMarketplaceProduct,
   normalizeCatalogProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
@@ -43,7 +44,7 @@ export async function generateMetadata({
   const { slug } = await params;
   const product = await getProduct(slug);
 
-  if (!product) {
+  if (!product || !isMarketplaceProduct(product)) {
     return {
       title: `Catalog Path Not Found | ${BUSINESS_NAME}`,
       description: BUSINESS_TAGLINE,
@@ -80,9 +81,7 @@ export default async function ProductPage({
   const { slug } = await params;
   const product = await getProduct(slug);
 
-  if (!product) {
-    return <ProductDetailClient initialProduct={product} />;
-  }
+  if (!product || !isMarketplaceProduct(product)) notFound();
 
   const absoluteImageUrl = product.imageUrl
     ? product.imageUrl.startsWith("http")
@@ -98,17 +97,13 @@ export default async function ProductPage({
     image: absoluteImageUrl ? [absoluteImageUrl] : undefined,
     category: product.category,
     url: `${SITE_URL}/product/${product.id}`,
-    ...(isQuoteProduct(product)
-      ? {}
-      : {
-          offers: {
-            "@type": "Offer",
-            url: `${SITE_URL}/product/${product.id}`,
-            priceCurrency: "GHS",
-            price: product.price,
-            availability: "https://schema.org/InStock",
-          },
-        }),
+    offers: {
+      "@type": "Offer",
+      url: `${SITE_URL}/product/${product.id}`,
+      priceCurrency: "GHS",
+      price: product.price,
+      availability: "https://schema.org/InStock",
+    },
   };
 
   return (

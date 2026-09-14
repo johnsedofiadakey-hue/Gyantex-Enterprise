@@ -35,14 +35,12 @@ interface CheckoutFormValues {
   marketingOptIn: boolean;
 }
 
-// See src/app/cart/page.tsx's isQuoteItem for why item.price alone is the
-// right check, not item.priceMode.
-function isQuoteItem(item: CartItem) {
+function isUnavailableItem(item: CartItem) {
   return item.price <= 0;
 }
 
 function itemPriceLabel(item: CartItem) {
-  if (isQuoteItem(item)) return "Price not set yet";
+  if (isUnavailableItem(item)) return "Unavailable";
   return `GHS ${(item.price * item.quantity).toFixed(2)}`;
 }
 
@@ -94,10 +92,10 @@ export default function CheckoutPage() {
     fetchZones();
   }, []);
 
-  const hasQuoteItems = useMemo(() => cart.items.some(isQuoteItem), [cart.items]);
+  const hasUnavailableItems = useMemo(() => cart.items.some(isUnavailableItem), [cart.items]);
   const selectedDelivery = zones.find((option) => option.id === deliveryZone) || zones[0];
   const subtotal = cart.totalPrice();
-  const deliveryFee = hasQuoteItems ? 0 : selectedDelivery.fee;
+  const deliveryFee = selectedDelivery.fee;
   const total = subtotal + deliveryFee;
 
   if (!hydrated || cart.items.length === 0) return null;
@@ -136,8 +134,8 @@ export default function CheckoutPage() {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     if (!validateForm(values)) return;
-    if (hasQuoteItems) {
-      toast("One or more items in your cart don't have a price set yet.", "error");
+    if (hasUnavailableItems) {
+      toast("Remove unavailable items from your cart before checkout.", "error");
       return;
     }
 
@@ -244,7 +242,7 @@ export default function CheckoutPage() {
                       </span>
                     </span>
                     <span className="shrink-0 text-sm font-semibold">
-                      {hasQuoteItems ? "—" : option.fee === 0 ? "Free" : `GHS ${option.fee.toFixed(2)}`}
+                      {option.fee === 0 ? "Free" : `GHS ${option.fee.toFixed(2)}`}
                     </span>
                   </label>
                 ))}
@@ -266,7 +264,7 @@ export default function CheckoutPage() {
           </form>
 
           <aside className="h-fit rounded-2xl bg-white p-5 shadow-sm lg:sticky lg:top-6 md:p-6">
-          <h2 className="mb-5 font-serif text-2xl font-semibold">Request summary</h2>
+          <h2 className="mb-5 font-serif text-2xl font-semibold">Order summary</h2>
           <div className="mb-5 max-h-72 space-y-4 overflow-y-auto pr-1">
             {cart.items.map((item) => (
               <div key={item.id} className="flex gap-3 border-b border-soft-grey pb-4 last:border-0">
@@ -294,13 +292,13 @@ export default function CheckoutPage() {
             <div className="flex justify-between gap-4">
               <span className="text-charcoal/60">Subtotal</span>
               <span className="font-semibold">
-                {hasQuoteItems && subtotal === 0 ? "Price not set yet" : `GHS ${subtotal.toFixed(2)}`}
+                {`GHS ${subtotal.toFixed(2)}`}
               </span>
             </div>
             <div className="flex justify-between gap-4">
               <span className="text-charcoal/60">Delivery</span>
               <span className="text-right font-medium">
-                {hasQuoteItems ? "—" : deliveryFee === 0 ? "Free" : `GHS ${deliveryFee.toFixed(2)}`}
+                {deliveryFee === 0 ? "Free" : `GHS ${deliveryFee.toFixed(2)}`}
               </span>
             </div>
             <div className="flex justify-between gap-4 border-t border-soft-grey pt-3">
@@ -309,10 +307,10 @@ export default function CheckoutPage() {
             </div>
           </div>
 
-          {hasQuoteItems ? (
+          {hasUnavailableItems ? (
             <div className="mt-6 flex items-start gap-3 rounded-xl bg-terracotta/10 p-4 text-sm leading-5 text-terracotta">
               <AlertCircle size={18} className="mt-0.5 shrink-0" />
-              <span>One or more items in your cart don&apos;t have a price set yet, so this can&apos;t be paid for online yet.</span>
+              <span>Remove unavailable items from your cart before payment.</span>
             </div>
           ) : (
             <div className="mt-6">

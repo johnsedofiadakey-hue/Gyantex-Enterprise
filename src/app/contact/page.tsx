@@ -18,11 +18,11 @@ export const metadata = {
 };
 
 export default function ContactPage() {
-  const message = encodeURIComponent("Hi Gyantex Enterprise, I want to request a custom cloth quote.");
+  const message = encodeURIComponent("Hi Gyantex Enterprise, I need help with a product or order.");
 
   return (
     <StaticPageLayout title="Contact Gyantex Enterprise">
-      <p>{BUSINESS_TAGLINE} WhatsApp is the fastest way to send logos, portraits, references, quantities, and deadlines.</p>
+      <p>{BUSINESS_TAGLINE} WhatsApp is the fastest way to get help with a product, payment, delivery, or an existing order.</p>
 
       <div className="mt-6 grid gap-3">
         <a
@@ -36,7 +36,7 @@ export default function ContactPage() {
           </div>
           <div>
             <div className="font-medium text-charcoal">WhatsApp</div>
-            <div className="text-sm text-charcoal/60">{BUSINESS_PHONE_DISPLAY} for quote requests and design follow-up</div>
+            <div className="text-sm text-charcoal/60">{BUSINESS_PHONE_DISPLAY} for product and order support</div>
           </div>
         </a>
 

@@ -16,11 +16,13 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage
 import { Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
+  getOptionValueImage,
   getOptionValueLabel,
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
   getSwatchStyle,
+  isMarketplaceProduct,
   normalizeCategory,
   type Category,
   type ProductColorOption,
@@ -56,10 +58,17 @@ interface Product {
 }
 
 /** Editable form shape for one value within an option group — `price` is a
- * plain string while typing; blank means "use the product's base price". */
+ * plain string while typing; blank means "use the product's base price".
+ * `image` holds an already-uploaded URL (e.g. the real photo of this value's
+ * cloth in lace vs the base fabric); `pendingFile` holds a newly-chosen photo
+ * not yet uploaded. Keeping it directly on the value (rather than a separate
+ * index-keyed map, like colorImageFiles) means it always travels with the
+ * right value through adding/removing/reordering — no index to fall out of sync. */
 interface OptionValueDraft {
   label: string;
   price: string;
+  image?: string;
+  pendingFile?: File;
 }
 
 /** Editable form shape for an option group (e.g. "Cloth Length"). */
@@ -166,6 +175,7 @@ export default function AdminProductsPage() {
         values: group.values.map((value) => ({
           label: getOptionValueLabel(value),
           price: getOptionValuePrice(value) !== undefined ? String(getOptionValuePrice(value)) : "",
+          image: getOptionValueImage(value),
         })),
       })),
       trackInventory: product.trackInventory !== false && (product.price || 0) > 0,
@@ -227,6 +237,35 @@ export default function AdminProductsPage() {
       );
       const colorOptions: ProductColorOption[] = colorUploads.filter((c): c is ProductColorOption => c !== null);
 
+      // Same parallel-upload pattern as color photos above — each option
+      // value's photo (e.g. "Fabric: Lace" showing the real lace cloth
+      // instead of the base fabric) is independent.
+      const resolvedOptionGroupsRaw = await Promise.all(
+        form.optionGroups.map(async (group) => {
+          const values = await Promise.all(
+            group.values.map(async (value) => {
+              const label = value.label.trim();
+              if (!label) return null;
+              const price = Number(value.price);
+              let image = value.image || "";
+              if (value.pendingFile) {
+                const compressed = await compressImageForUpload(value.pendingFile);
+                const optionStorageRef = ref(storage, `products/options/${Date.now()}_${compressed.name}`);
+                await uploadBytes(optionStorageRef, compressed);
+                image = await getDownloadURL(optionStorageRef);
+              }
+              const hasPrice = value.price.trim() && !Number.isNaN(price);
+              if (!hasPrice && !image) return label;
+              return { label, ...(hasPrice ? { price } : {}), ...(image ? { image } : {}) };
+            })
+          );
+          return { label: group.label.trim(), values: values.filter((v) => v !== null) };
+        })
+      );
+      const resolvedOptionGroups: ProductOptionGroup[] = resolvedOptionGroupsRaw.filter(
+        (group) => group.label && group.values.length > 0
+      ) as ProductOptionGroup[];
+
       // The main/listing photo: a manually chosen file wins, otherwise fall
       // back to the first color's photo (so products with color photos don't
       // need a separate, redundant top-level upload), then whatever was
@@ -239,9 +278,11 @@ export default function AdminProductsPage() {
         imageUrl = await getDownloadURL(storageRef);
       }
 
-      // A product with no price is a "quote" item — not payable online, shown
-      // as "Contact for pricing" instead of Add to Cart. Set a real price
-      // (here or per-value in Customer choices below) to make it purchasable.
+      // A product with no price (and no priced Customer-choices value) is
+      // hidden from the public site entirely — the storefront is a straight
+      // marketplace now, not a quote-request flow, so an unpriced item has
+      // nothing to show. Treat this as a draft: set a real price (here or
+      // per-value in Customer choices below) to make it visible and purchasable.
       const price = Number(form.price) || 0;
       const isQuote = price <= 0;
       const trackInventory = !isQuote && form.trackInventory;
@@ -256,18 +297,7 @@ export default function AdminProductsPage() {
         colorOptions,
         colors: colorOptions.map((c) => c.hex),
         colorNames: colorOptions.map((c) => c.name),
-        optionGroups: form.optionGroups
-          .map((group) => ({
-            label: group.label.trim(),
-            values: group.values
-              .filter((value) => value.label.trim())
-              .map((value) => {
-                const label = value.label.trim();
-                const price = Number(value.price);
-                return value.price.trim() && !Number.isNaN(price) ? { label, price } : label;
-              }),
-          }))
-          .filter((group) => group.label && group.values.length > 0),
+        optionGroups: resolvedOptionGroups,
         trackInventory,
         stockUnits: trackInventory ? Math.max(0, Number(form.stockUnits) || 0) : null,
         featured: form.featured,
@@ -279,10 +309,18 @@ export default function AdminProductsPage() {
         toast("Product updated.", "success");
 
         // Clean up any photo that was on this product before but isn't
-        // referenced by the version we just saved — a replaced main photo,
-        // a replaced color photo, or a color that got removed entirely.
-        const oldUrls = [editing.imageUrl, ...(editing.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
-        const newUrls = new Set([imageUrl, ...colorOptions.map((c) => c.image)].filter(Boolean) as string[]);
+        // referenced by the version we just saved — a replaced main photo, a
+        // replaced color photo, a replaced/removed option-value photo (e.g.
+        // an old "Lace" photo swapped for a new one), or a color/value that
+        // got removed entirely.
+        const oldOptionImages = (editing.optionGroups || []).flatMap((group) => group.values.map(getOptionValueImage));
+        const newOptionImages = resolvedOptionGroups.flatMap((group) => group.values.map(getOptionValueImage));
+        const oldUrls = [editing.imageUrl, ...(editing.colorOptions || []).map((c) => c.image), ...oldOptionImages].filter(
+          Boolean
+        ) as string[];
+        const newUrls = new Set(
+          [imageUrl, ...colorOptions.map((c) => c.image), ...newOptionImages].filter(Boolean) as string[]
+        );
         const orphaned = oldUrls.filter((url) => !newUrls.has(url));
         await Promise.all(orphaned.map(deleteStorageImage));
       } else {
@@ -307,7 +345,10 @@ export default function AdminProductsPage() {
     try {
       await deleteDoc(doc(db, "products", product.id));
       toast("Product deleted.", "success");
-      const urls = [product.imageUrl, ...(product.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
+      const optionImages = (product.optionGroups || []).flatMap((group) => group.values.map(getOptionValueImage));
+      const urls = [product.imageUrl, ...(product.colorOptions || []).map((c) => c.image), ...optionImages].filter(
+        Boolean
+      ) as string[];
       await Promise.all(urls.map(deleteStorageImage));
     } catch (error) {
       console.error(error);
@@ -374,7 +415,17 @@ export default function AdminProductsPage() {
                     </div>
                   </td>
                   <td className="px-6 py-3 text-charcoal/70">{product.category || "-"}</td>
-                  <td className="px-6 py-3 font-medium">{getPriceLabel(product)}</td>
+                  <td className="px-6 py-3 font-medium">
+                    {getPriceLabel(product)}
+                    {!isMarketplaceProduct(product) && (
+                      <span
+                        className="ml-2 rounded-full bg-terracotta/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-terracotta"
+                        title="No price set — this draft isn't visible on the public site yet"
+                      >
+                        Hidden
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-3">
                     <span className={(product.stockUnits ?? 0) <= 0 && product.trackInventory ? "font-semibold text-terracotta" : "text-charcoal/70"}>
                       {stockLabel(product)}
@@ -422,12 +473,13 @@ export default function AdminProductsPage() {
                   min="0"
                   value={form.price}
                   onChange={(event) => setForm({ ...form, price: event.target.value })}
-                  placeholder="Leave blank if not priced yet"
+                  placeholder="Leave blank to save as a draft"
                   className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive"
                 />
                 <p className="mt-1 text-xs text-charcoal/45">
-                  Blank shows &quot;Contact for pricing&quot; instead of Add to Cart. If Customer choices below has priced
-                  values, the one the customer picks is charged instead of this base price.
+                  Blank hides this product from the public site entirely — it stays a draft until it has a price. If
+                  Customer choices below has priced values, the one the customer picks is charged instead of this base
+                  price (and the product is already visible).
                 </p>
               </div>
 
@@ -600,7 +652,8 @@ export default function AdminProductsPage() {
                 </div>
                 <p className="mb-2 text-xs text-charcoal/50">
                   E.g. a &quot;Cloth Length&quot; group with 6 Yards, 12 Yards, and Full Piece — each can have its own price.
-                  Leave a value&apos;s price blank to keep it at the product&apos;s base price above.
+                  Leave a value&apos;s price blank to keep it at the product&apos;s base price above. Add a photo to a value
+                  (e.g. a &quot;Fabric: Lace&quot; choice) to show that value&apos;s real photo when a customer picks it.
                 </p>
                 {form.optionGroups.length === 0 ? (
                   <p className="text-xs text-charcoal/50">
@@ -633,7 +686,7 @@ export default function AdminProductsPage() {
 
                         <div className="mt-2 space-y-2">
                           {group.values.map((value, valueIndex) => (
-                            <div key={valueIndex} className="flex items-center gap-2">
+                            <div key={valueIndex} className="flex flex-wrap items-center gap-2">
                               <input
                                 value={value.label}
                                 onChange={(event) => {
@@ -643,8 +696,8 @@ export default function AdminProductsPage() {
                                   next[groupIndex] = { ...next[groupIndex], values };
                                   setForm({ ...form, optionGroups: next });
                                 }}
-                                placeholder="12 Yards"
-                                className="flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
+                                placeholder="Lace"
+                                className="min-w-[90px] flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
                               />
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs text-charcoal/45">GHS</span>
@@ -664,6 +717,37 @@ export default function AdminProductsPage() {
                                   className="w-28 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
                                 />
                               </div>
+                              <label
+                                className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-charcoal/30 px-2.5 py-2 text-xs hover:border-olive/50"
+                                title="Optional — shows this photo when a customer picks this value (e.g. the real Lace cloth)"
+                              >
+                                {value.pendingFile ? (
+                                  <span className="max-w-[80px] truncate">{value.pendingFile.name}</span>
+                                ) : value.image ? (
+                                  <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded">
+                                    <ProductImage src={value.image} alt={value.label || "Value photo"} sizes="28px" className="object-cover" />
+                                  </div>
+                                ) : (
+                                  <>
+                                    <Upload size={13} className="text-charcoal/50" />
+                                    <span className="text-charcoal/60">Photo</span>
+                                  </>
+                                )}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (!file) return;
+                                    const next = [...form.optionGroups];
+                                    const values = [...next[groupIndex].values];
+                                    values[valueIndex] = { ...values[valueIndex], pendingFile: file };
+                                    next[groupIndex] = { ...next[groupIndex], values };
+                                    setForm({ ...form, optionGroups: next });
+                                  }}
+                                />
+                              </label>
                               <button
                                 type="button"
                                 onClick={() => {

@@ -17,9 +17,9 @@ const COLUMNS = [
   {
     title: "Catalog",
     links: [
-      { label: "Start a Quote", href: "/#catalog" },
-      { label: "Track Request", href: "/track-order" },
-      { label: "Your Request", href: "/cart" },
+      { label: "Shop Products", href: "/" },
+      { label: "Track Order", href: "/track-order" },
+      { label: "Your Cart", href: "/cart" },
     ],
   },
   {

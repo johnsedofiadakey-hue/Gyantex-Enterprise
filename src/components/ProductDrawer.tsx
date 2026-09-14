@@ -2,17 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronLeft, ChevronRight, MessageCircle, Minus, Plus, X } from "lucide-react";
-import { WHATSAPP_NUMBER } from "@/lib/config";
+import { Check, ChevronLeft, ChevronRight, Minus, Plus, X } from "lucide-react";
 import {
   getOptionValueLabel,
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
+  getSelectedOptionImage,
   getSelectedOptionsPrice,
   getSwatchStyle,
   hasPricedOptionValue,
-  isQuoteProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -68,24 +67,27 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
     Object.fromEntries((product.optionGroups || []).map((group) => [group.label, getOptionValueLabel(group.values[0])]))
   );
 
-  const quoteProduct = isQuoteProduct(product);
   // A product with its own Customer-choices (e.g. Cloth Length) already lets
   // the owner price each option independently — showing the generic
   // full/half toggle on top of that just duplicates it with a forced 50%
   // split, so it only applies to products that don't define their own.
-  const canSplit = !quoteProduct && !hasPricedOptionValue(product.optionGroups);
+  const canSplit = !hasPricedOptionValue(product.optionGroups);
   const colorOptions = getProductColorOptions(product);
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
   const fullPiecePrice = selectedOptionsPrice ?? product.price;
   const unitPrice = purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
   const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
 
+  // A selected Customer-choice value with its own photo (e.g. "Fabric: Lace")
+  // wins first — it's usually a bigger visual difference than a colorway —
+  // then a color with its own photo, then the product's default gallery.
+  const selectedOptionImage = getSelectedOptionImage(product.optionGroups, selectedOptions);
   const gallery = useMemo(() => {
     const colorImage = colorOptions[selectedColor]?.image;
-    return [colorImage, product.imageUrl, ...(product.gallery || [])].filter(
+    return [selectedOptionImage, colorImage, product.imageUrl, ...(product.gallery || [])].filter(
       (src, index, list): src is string => Boolean(src) && list.indexOf(src) === index
     );
-  }, [colorOptions, selectedColor, product.imageUrl, product.gallery]);
+  }, [selectedOptionImage, colorOptions, selectedColor, product.imageUrl, product.gallery]);
   const image = gallery[selectedImage] || gallery[0];
 
   const similarProducts = useMemo(
@@ -194,9 +196,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
 
             <div className="px-5 py-4">
               <div className="font-serif text-xl font-semibold leading-tight">{product.name}</div>
-              {!quoteProduct && (
-                <div className="mt-1.5 text-lg font-semibold">GHS {(unitPrice * quantity).toFixed(2)}</div>
-              )}
+              <div className="mt-1.5 text-lg font-semibold">GHS {(unitPrice * quantity).toFixed(2)}</div>
               {product.description && (
                 <p className="mt-3 text-sm leading-6 text-charcoal/62">{product.description}</p>
               )}
@@ -267,7 +267,10 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                       return (
                         <button
                           key={label}
-                          onClick={() => setSelectedOptions((prev) => ({ ...prev, [group.label]: label }))}
+                          onClick={() => {
+                            setSelectedOptions((prev) => ({ ...prev, [group.label]: label }));
+                            setSelectedImage(0);
+                          }}
                           aria-pressed={active}
                           className={`min-h-[40px] rounded-lg border px-3 py-2 text-sm font-semibold transition ${
                             active ? "border-olive bg-olive text-white" : "border-charcoal/15 bg-white hover:border-olive"
@@ -329,28 +332,13 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
           </div>
 
           <div className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
-            {quoteProduct ? (
-              <a
-                href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                  `Hi Gyantex Enterprise, I'd like a quote for ${product.name}.`
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => trackEvent("whatsapp_quote_request", { productId: product.id })}
-                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-sm font-semibold text-white transition hover:bg-[#25D366]/90"
-              >
-                <MessageCircle size={18} />
-                Request a Quote on WhatsApp
-              </a>
-            ) : (
-              <button
-                onClick={handleAdd}
-                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90"
-              >
-                <Check size={18} />
-                Add to Cart — GHS {(unitPrice * quantity).toFixed(2)}
-              </button>
-            )}
+            <button
+              onClick={handleAdd}
+              className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90"
+            >
+              <Check size={18} />
+              Add to Cart — GHS {(unitPrice * quantity).toFixed(2)}
+            </button>
           </div>
         </motion.div>
       </div>

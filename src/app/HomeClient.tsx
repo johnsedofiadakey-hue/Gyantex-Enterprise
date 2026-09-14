@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Package, Search, ShoppingBag, Star } from "lucide-react";
-import { type CatalogProduct, getPriceLabel, isQuoteProduct } from "@/lib/catalog";
+import { type CatalogProduct, getPriceLabel } from "@/lib/catalog";
 import BrandMark from "@/components/BrandMark";
 import CartBadge from "@/components/CartBadge";
 import Footer from "@/components/Footer";
@@ -42,7 +42,7 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <BrandMark compact />
 
-          <div className="flex items-center gap-2 md:gap-4">
+          <div className="flex items-center gap-1.5 md:gap-4">
             <button
               onClick={() => setSearchOpen((value) => !value)}
               aria-label="Search catalog"
@@ -55,10 +55,11 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
             </button>
             <Link
               href="/track-order"
-              className="grid h-11 w-11 place-items-center rounded-full text-charcoal transition-colors hover:bg-soft-grey hover:text-olive"
+              className="flex h-11 items-center gap-1.5 rounded-full px-2.5 text-charcoal transition-colors hover:bg-soft-grey hover:text-olive"
               aria-label="Track your order"
             >
-              <Package size={19} />
+              <Package size={18} />
+              <span className="text-xs font-semibold">Track</span>
             </Link>
             <button
               onClick={() => setCartDrawerOpen(true)}
@@ -91,6 +92,7 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
       <main className="flex-1">
         <section className="px-4 py-6 md:px-6 md:py-8">
           <div className="mx-auto max-w-7xl">
+            <h1 className="sr-only">Shop Gyantex textile cloth</h1>
             {visibleProducts.length === 0 ? (
               <div className="rounded-md border border-soft-grey bg-soft-grey p-10 text-center text-charcoal/58">
                 No matching cloth yet. Try another search term.
@@ -130,19 +132,13 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
                       </button>
 
                       <div className="mt-auto pt-2.5">
-                        {isQuoteProduct(product) ? (
-                          <div className="text-xs font-medium text-charcoal/40 sm:text-sm">Coming soon</div>
-                        ) : (
-                          <>
-                            <div className="mb-2.5 text-sm font-semibold sm:text-base">{getPriceLabel(product)}</div>
-                            <button
-                              onClick={() => setDrawerProduct(product)}
-                              className="min-h-[44px] w-full rounded-xl bg-olive px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-olive/90 sm:text-sm"
-                            >
-                              Add to Cart
-                            </button>
-                          </>
-                        )}
+                        <div className="mb-2.5 text-sm font-semibold sm:text-base">{getPriceLabel(product)}</div>
+                        <button
+                          onClick={() => setDrawerProduct(product)}
+                          className="min-h-[44px] w-full rounded-xl bg-olive px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-olive/90 sm:text-sm"
+                        >
+                          Choose Options
+                        </button>
                       </div>
                     </div>
                   </motion.article>

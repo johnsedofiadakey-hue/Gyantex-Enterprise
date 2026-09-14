@@ -1,8 +1,10 @@
 export type PurchaseType = 'full' | 'half';
 export type PriceMode = 'fixed' | 'quote';
 
-/** A selectable value within an option group — plain string values carry no price. */
-export type ProductOptionValue = string | { label: string; price?: number };
+/** A selectable value within an option group — plain string values carry no
+ * price or photo. `image` (kept in sync with src/lib/catalog.ts's copy of
+ * this type) is display-only, never read here — pricing never depends on it. */
+export type ProductOptionValue = string | { label: string; price?: number; image?: string };
 
 export interface ProductOptionGroup {
   label: string;

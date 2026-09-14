@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock3,
-  MessageCircle,
   Minus,
   Palette,
   Plus,
@@ -18,18 +17,16 @@ import {
 import {
   PAYMENT_METHODS,
   PICKUP_ADDRESS,
-  WHATSAPP_NUMBER,
 } from "@/lib/config";
 import {
   getCategoryAccent,
   getOptionValueLabel,
   getOptionValuePrice,
-  getPriceLabel,
   getProductColorOptions,
   getSwatchStyle,
+  getSelectedOptionImage,
   getSelectedOptionsPrice,
   hasPricedOptionValue,
-  isQuoteProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -43,12 +40,6 @@ import ProductImage from "@/components/ProductImage";
 import CartDrawer from "@/components/CartDrawer";
 
 export type Product = CatalogProduct;
-
-const PROCESS = [
-  "Tell us the event, quantity, colors, wording, and deadline.",
-  "Send logos, portraits, crests, or sample references on WhatsApp.",
-  "Review the quote and design direction before payment and printing.",
-];
 
 export default function ProductDetailClient({ initialProduct }: { initialProduct: Product | null }) {
   const cart = useCartStore();
@@ -77,7 +68,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
         </header>
         <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
           <h1 className="font-serif text-3xl font-semibold">Catalog path not found</h1>
-          <p className="max-w-sm text-sm text-charcoal/60">Choose another Gyantex textile service or message us on WhatsApp for help.</p>
+          <p className="max-w-sm text-sm text-charcoal/60">Choose another product from the Gyantex catalog.</p>
           <Link href="/" className="rounded-xl bg-olive px-6 py-3 text-sm font-semibold text-white hover:bg-olive/90">
             Back to catalog
           </Link>
@@ -86,20 +77,22 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
     );
   }
 
-  const quoteProduct = isQuoteProduct(product);
   // A product with its own Customer-choices (e.g. Cloth Length) already lets
   // the owner price each option independently — showing the generic
   // full/half toggle on top of that just duplicates it with a forced 50%
   // split, so it only applies to products that don't define their own.
-  const canSplit = !quoteProduct && !hasPricedOptionValue(product.optionGroups);
+  const canSplit = !hasPricedOptionValue(product.optionGroups);
   const effectivePurchaseType = canSplit ? purchaseType : "full";
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
   const basePrice = selectedOptionsPrice ?? product.price;
   const unitPrice = effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
   const colorOptions = getProductColorOptions(product);
   const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
-  // A color with its own photo always shows that photo — it's the more specific choice.
-  const currentImage = colorOptions[selectedColor]?.image || gallery[selectedImage] || product.imageUrl;
+  // A selected Customer-choice value with its own photo (e.g. "Fabric: Lace")
+  // wins first — it's usually a bigger visual difference than a colorway —
+  // then a color with its own photo, then manual gallery browsing.
+  const selectedOptionImage = getSelectedOptionImage(product.optionGroups, selectedOptions);
+  const currentImage = selectedOptionImage || colorOptions[selectedColor]?.image || gallery[selectedImage] || product.imageUrl;
 
   const buildCartItem = () => ({
     id: product.id,
@@ -116,12 +109,11 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
     quantity,
   });
 
-  const addToRequest = () => {
+  const addToCart = () => {
     cart.addItem(buildCartItem());
     trackEvent("product_add_to_cart", {
       productId: product.id,
       category: product.category,
-      quoteProduct,
     });
     toast(`${product.name} added to your cart.`, "success");
     setCartDrawerOpen(true);
@@ -140,7 +132,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
           <button
             onClick={() => setCartDrawerOpen(true)}
             className="relative grid h-10 w-10 place-items-center rounded-full text-charcoal transition-colors hover:bg-soft-grey hover:text-olive"
-            aria-label="Open request cart"
+            aria-label="Open cart"
           >
             <ShoppingBag size={20} />
             <CartBadge />
@@ -207,11 +199,6 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
               <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${getCategoryAccent(product.category).chip}`}>
                 {product.category}
               </span>
-              {quoteProduct && (
-                <span className="rounded-full bg-sand/60 px-3 py-1 text-xs font-semibold text-charcoal">
-                  Quote-first
-                </span>
-              )}
             </div>
 
             <h1 className="font-serif text-4xl font-semibold leading-tight md:text-5xl">{product.name}</h1>
@@ -221,11 +208,11 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
               <div>
                 <div className="text-xs font-medium uppercase tracking-[0.16em] text-charcoal/45">Pricing</div>
                 <div className="mt-1 text-2xl font-bold">
-                  {quoteProduct ? getPriceLabel(product) : `GHS ${(unitPrice * quantity).toFixed(2)}`}
+                  GHS {(unitPrice * quantity).toFixed(2)}
                 </div>
               </div>
               <div className="text-sm leading-6 text-charcoal/58 sm:max-w-xs sm:text-right">
-                {product.minimumOrder || "Final cost depends on quantity, fabric, and artwork requirements."}
+                {product.minimumOrder || "Choose your options, then add this item to cart."}
               </div>
             </div>
 
@@ -320,9 +307,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
 
             <div className="mt-8">
               <span className="mb-3 block font-medium">
-                {quoteProduct
-                  ? "Estimated quantity or request count"
-                  : product.unit
+                {product.unit
                   ? `How many ${product.unit}${product.unit.endsWith("s") ? "" : "s"}?`
                   : "Quantity"}
               </span>
@@ -349,29 +334,14 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
             </div>
 
             <div className="mt-8">
-              {quoteProduct ? (
-                <a
-                  href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                    `Hi Gyantex Enterprise, I'd like a quote for ${product.name}.`
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => trackEvent("whatsapp_quote_request", { productId: product.id })}
-                  className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 text-sm font-semibold text-white transition hover:bg-[#25D366]/90"
-                >
-                  <MessageCircle size={18} />
-                  Request a Quote on WhatsApp
-                </a>
-              ) : (
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => addToRequest()}
-                  className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
-                >
-                  <ShoppingBag size={18} />
-                  Add to Cart
-                </motion.button>
-              )}
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={addToCart}
+                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
+              >
+                <ShoppingBag size={18} />
+                Add to Cart
+              </motion.button>
             </div>
 
             <div className="mt-8 grid gap-3 border-t border-soft-grey pt-6 text-sm text-charcoal/72">
@@ -387,23 +357,6 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
                 <Clock3 size={19} className="text-olive" />
                 <span>Design and print timeline depends on artwork readiness, fabric choice, and quantity.</span>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-soft-grey px-4 py-12 md:px-6">
-          <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[0.85fr_1.15fr]">
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-olive">What Gyantex needs</p>
-              <h2 className="font-serif text-3xl font-semibold md:text-4xl">A stronger brief gives a faster quote.</h2>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              {PROCESS.map((step, index) => (
-                <div key={step} className="rounded-xl bg-white p-5 shadow-sm">
-                  <div className="mb-4 grid h-9 w-9 place-items-center rounded-full bg-charcoal text-sm font-bold text-white">{index + 1}</div>
-                  <p className="text-sm leading-6 text-charcoal/68">{step}</p>
-                </div>
-              ))}
             </div>
           </div>
         </section>
@@ -426,20 +379,14 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
       </main>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-soft-grey bg-white p-3 shadow-2xl md:hidden">
-        {quoteProduct ? (
-          <div className="flex min-h-[48px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
-            Price coming soon
-          </div>
-        ) : (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={() => addToRequest()}
-            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white"
-          >
-            <ShoppingBag size={17} />
-            Add to Cart
-          </motion.button>
-        )}
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={addToCart}
+          className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white"
+        >
+          <ShoppingBag size={17} />
+          Add to Cart
+        </motion.button>
       </div>
 
       <Footer />

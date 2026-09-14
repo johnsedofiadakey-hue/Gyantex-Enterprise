@@ -11,6 +11,7 @@ import {
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
+  getSelectedOptionImage,
   getSelectedOptionsPrice,
   getSwatchStyle,
   hasPricedOptionValue,
@@ -402,7 +403,7 @@ function PosProductCard({
     onAddVariant({
       productId: product.id,
       name: product.name,
-      image: colorOptions[selectedColor]?.image || product.imageUrl,
+      image: getSelectedOptionImage(product.optionGroups, selectedOptions) || colorOptions[selectedColor]?.image || product.imageUrl,
       unitPrice: finalUnitPrice,
       color: colorOptions[selectedColor]?.name,
       selections: Object.keys(selectedOptions).length ? selectedOptions : undefined,
