@@ -22,6 +22,7 @@ import {
   isMarketplaceProduct,
   normalizeCategory,
   type Category,
+  type PricingPreset,
   type ProductColorOption,
   type ProductOptionGroup,
   type ProductVariant,
@@ -99,6 +100,7 @@ export default function AdminProductsPage() {
   const { role } = useAdminRole();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [pricingPresets, setPricingPresets] = useState<PricingPreset[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -138,6 +140,36 @@ export default function AdminProductsPage() {
     );
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    const presetQuery = query(collection(db, "pricingPresets"), orderBy("order", "asc"));
+    const unsubscribe = onSnapshot(
+      presetQuery,
+      (snapshot) => {
+        setPricingPresets(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as PricingPreset)));
+      },
+      (error) => {
+        console.error("Failed to load pricing presets", error);
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+  // Appends one new Variants row per size/price pair in the chosen preset —
+  // never edits or removes existing rows, so applying a preset is always
+  // safe to try, re-try, or mix with rows already typed in by hand.
+  const applyPricingPreset = (presetId: string) => {
+    const preset = pricingPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    const newRows: VariantDraft[] = preset.rows.map((row) => ({
+      color: "",
+      hex: "#111111",
+      size: row.size,
+      price: String(row.price),
+      inStock: true,
+    }));
+    setForm({ ...form, variants: [...form.variants, ...newRows] });
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -474,26 +506,43 @@ export default function AdminProductsPage() {
               </div>
 
               <div className="md:col-span-2">
-                <div className="mb-1.5 flex items-center justify-between">
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                   <label className="block text-sm font-medium">Variants</label>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setForm({
-                        ...form,
-                        variants: [...form.variants, { color: "", hex: "#111111", size: "", price: "", inStock: true }],
-                      })
-                    }
-                    className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
-                  >
-                    <Plus size={14} /> Add variant
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {pricingPresets.length > 0 && (
+                      <select
+                        value=""
+                        onChange={(event) => {
+                          if (event.target.value) applyPricingPreset(event.target.value);
+                        }}
+                        className="rounded-md border border-charcoal/20 bg-white p-1.5 text-xs outline-none focus:border-olive"
+                      >
+                        <option value="">Apply a pricing preset…</option>
+                        {pricingPresets.map((preset) => (
+                          <option key={preset.id} value={preset.id}>{preset.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          variants: [...form.variants, { color: "", hex: "#111111", size: "", price: "", inStock: true }],
+                        })
+                      }
+                      className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
+                    >
+                      <Plus size={14} /> Add variant
+                    </button>
+                  </div>
                 </div>
                 <p className="mb-2 text-xs text-charcoal/50">
                   One row per thing you actually sell — a color, a size (e.g. &quot;12 Yards&quot;), or both together as
                   one row (e.g. &quot;Gold — Lace, 12 Yards&quot;) at its own price and photo. Leave price blank to use the
                   product&apos;s base price above. Turn on Two-tone for a combo cloth (e.g. &quot;Red &amp; Black&quot;).
-                  Uncheck In stock to pull just that one row from sale when it sells out.
+                  Uncheck In stock to pull just that one row from sale when it sells out. Set up reusable size ladders
+                  (e.g. lace yardage) in Admin → Pricing Presets, then apply one above instead of retyping it.
                 </p>
                 {form.variants.length === 0 ? (
                   <p className="text-xs text-charcoal/50">

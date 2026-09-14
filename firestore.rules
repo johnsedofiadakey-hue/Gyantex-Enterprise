@@ -29,6 +29,14 @@ service cloud.firestore {
       allow write: if isOwner();
     }
 
+    // Reusable size/price ladders (e.g. "Lace Yardage": 6 Yards / 12 Yards)
+    // the owner defines once and applies to a product's Variants table from
+    // a dropdown, instead of retyping the same sizes and prices every time.
+    match /pricingPresets/{presetId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
     // Site-wide config docs (e.g. settings/branding for the admin-set
     // primary/secondary/accent colors) — public read since the storefront
     // itself needs these on every visit, owner-only write.

@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, ShoppingCart, Package, Tag, Truck, Users, UserCog, Settings, Store, LogOut } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Package, Tag, Truck, Users, UserCog, Settings, Store, Layers, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -15,6 +15,7 @@ const navItems: { name: string; href: string; icon: typeof LayoutDashboard; role
   { name: "Orders", href: "/admin/orders", icon: ShoppingCart, roles: ["owner", "staff"] },
   { name: "Products", href: "/admin/products", icon: Package, roles: ["owner"] },
   { name: "Categories", href: "/admin/categories", icon: Tag, roles: ["owner"] },
+  { name: "Pricing Presets", href: "/admin/pricing-presets", icon: Layers, roles: ["owner"] },
   { name: "Delivery", href: "/admin/delivery", icon: Truck, roles: ["owner"] },
   { name: "Customers", href: "/admin/customers", icon: Users, roles: ["owner"] },
   { name: "Staff", href: "/admin/staff", icon: UserCog, roles: ["owner"] },

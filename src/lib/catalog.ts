@@ -304,6 +304,26 @@ export const DEFAULT_DELIVERY_ZONES: DeliveryZone[] = [
   { id: "ghana_delivery", label: "Delivery outside Kumasi", description: "Nationwide delivery is arranged after order confirmation.", fee: 50, order: 2, active: true },
 ];
 
+/** One size/price pair within a pricing preset, e.g. "6 Yards" at GHS 150. */
+export interface PricingPresetRow {
+  size: string;
+  price: number;
+}
+
+/** A reusable size/price ladder the owner defines once (e.g. "Lace Yardage":
+ * 6 Yards / 12 Yards) and applies to a product's Variants table from a
+ * dropdown in Admin -> Products, instead of retyping the same sizes and
+ * prices on every product that sells by the same ladder. Purely an
+ * authoring shortcut — applying one copies its rows into `product.variants`
+ * as ordinary size+price rows; nothing downstream (storefront, checkout,
+ * POS) needs to know a preset was ever involved. */
+export interface PricingPreset {
+  id: string;
+  name: string;
+  rows: PricingPresetRow[];
+  order: number;
+}
+
 export const DEFAULT_PRODUCTS: CatalogProduct[] = [
   {
     id: "funeral-memorial-cloth",
