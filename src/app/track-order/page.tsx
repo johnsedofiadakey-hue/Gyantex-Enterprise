@@ -59,7 +59,7 @@ function TrackOrderContent() {
   // stuck until they manually reload.
   useEffect(() => {
     if (state !== "found" || !order) return;
-    if (order.status !== "paid" || order.fulfillmentStatus === "delivered") return;
+    if (order.status !== "paid" || order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "canceled") return;
 
     const refresh = async () => {
       try {

@@ -266,3 +266,35 @@ test('a migrated product (variants set) ignores any leftover legacy colorOptions
   };
   assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold'), 450);
 });
+
+// --- Per-variant "in stock" ---
+
+test('a variant explicitly marked out of stock rejects the sale even though it has a real price', () => {
+  const product = {
+    price: 300,
+    priceMode: 'fixed' as const,
+    variants: [{ color: 'Gold', price: 450, inStock: false }],
+  };
+  assert.throws(() => computeItemUnitPrice(product, 'full', undefined, 'Gold'));
+});
+
+test('a variant with inStock left unset (or explicitly true) sells normally', () => {
+  const product = {
+    price: 300,
+    priceMode: 'fixed' as const,
+    variants: [
+      { color: 'Gold', price: 450 },
+      { color: 'Red', price: 350, inStock: true },
+    ],
+  };
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold'), 450);
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Red'), 350);
+});
+
+test('order totals surface the out-of-stock rejection for a multi-item cart', () => {
+  const items = [{ productId: 'p1', purchaseType: 'full' as const, quantity: 1, color: 'Gold' }];
+  const products = {
+    p1: { price: 300, priceMode: 'fixed' as const, variants: [{ color: 'Gold', price: 450, inStock: false }] },
+  };
+  assert.throws(() => computeOrderTotals(items, products, 'pickup'));
+});

@@ -1,12 +1,12 @@
 "use client";
 
-import { CheckCircle2, Clock, Home, Package, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Home, Package, Truck, XCircle } from "lucide-react";
 
 export interface OrderStatusData {
   orderId: string;
   orderNumber?: string | null;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus?: "pending" | "processing" | "delivered";
+  fulfillmentStatus?: "pending" | "processing" | "shipped" | "delivered" | "canceled";
   totalAmount: number;
   deliveryFee?: number;
   deliveryZone?: string;
@@ -14,22 +14,27 @@ export interface OrderStatusData {
   customerFirstName?: string;
 }
 
-// Same 3 steps for every order — only the last label changes. There's no
-// separate "shipped" leg: Gyantex hands orders off directly (pickup or their
-// own delivery), so a transit step would just be a status nobody sets and no
-// SMS ever fires for. Two customer touchpoints — confirmed, then done — is
-// the whole design, not a partial view of a richer pipeline.
+// A pickup order never has a transit leg (Processing straight to Picked Up
+// in person), so it skips the Shipped step a delivery order gets. Neither
+// path has a separate "Received" step anymore — payment confirmation IS
+// what starts processing, there's nothing before it worth showing.
 function fulfillmentSteps(isPickup: boolean): Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> {
-  return [
-    { key: "pending", label: "Received", icon: CheckCircle2 },
+  const steps: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
     { key: "processing", label: "Preparing", icon: Package },
-    { key: "delivered", label: isPickup ? "Picked Up" : "Delivered", icon: Home },
   ];
+  if (!isPickup) steps.push({ key: "shipped", label: "Shipped", icon: Truck });
+  steps.push({ key: "delivered", label: isPickup ? "Picked Up" : "Delivered", icon: Home });
+  return steps;
 }
 
 function FulfillmentTracker({ current, isPickup }: { current: OrderStatusData["fulfillmentStatus"]; isPickup: boolean }) {
   const FULFILLMENT_STEPS = fulfillmentSteps(isPickup);
-  const currentIndex = FULFILLMENT_STEPS.findIndex((step) => step.key === current);
+  // "pending" is a transient pre-payment value that never reaches this card
+  // (it only renders once status is "paid", by which point fulfillment has
+  // already moved to "processing" in the same step) — treated the same as
+  // "processing" here just as a defensive fallback, never actually hit live.
+  const effectiveCurrent = current === "pending" ? "processing" : current;
+  const currentIndex = FULFILLMENT_STEPS.findIndex((step) => step.key === effectiveCurrent);
 
   return (
     <div className="my-8 flex items-center justify-between">
@@ -71,19 +76,21 @@ function itemPriceLabel(item: OrderStatusData["items"][number]) {
 
 export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
   const orderNeedsReview = needsOrderReview(order);
+  const isCanceled = order.status === "paid" && order.fulfillmentStatus === "canceled";
 
   return (
     <div className="w-full max-w-md bg-white p-8 text-center shadow-sm">
-      {order.status === "paid" ? (
-        <CheckCircle2 className="mx-auto mb-6 text-olive" size={48} />
-      ) : order.status === "failed" || order.status === "expired" ? (
+      {isCanceled || order.status === "failed" || order.status === "expired" ? (
         <XCircle className="mx-auto mb-6 text-terracotta" size={48} />
+      ) : order.status === "paid" ? (
+        <CheckCircle2 className="mx-auto mb-6 text-olive" size={48} />
       ) : (
         <Clock className="mx-auto mb-6 text-sand" size={48} />
       )}
 
       <h1 className="mb-2 font-serif text-2xl font-semibold">
-        {order.status === "paid" && `Thank you, ${order.customerFirstName || "friend"}!`}
+        {isCanceled && "This order was canceled"}
+        {!isCanceled && order.status === "paid" && `Thank you, ${order.customerFirstName || "friend"}!`}
         {order.status === "pending_payment" && "Payment still processing"}
         {order.status === "failed" && "Payment didn't go through"}
         {order.status === "expired" && "This order has expired"}
@@ -91,7 +98,8 @@ export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
         {order.status === "quote_requested" && "Order needs review"}
       </h1>
       <p className="mb-2 text-sm leading-6 text-charcoal/60">
-        {order.status === "paid" && "Your payment is confirmed and Gyantex is preparing your order."}
+        {isCanceled && "Gyantex has canceled this order. Message us on WhatsApp if you have questions."}
+        {!isCanceled && order.status === "paid" && "Your payment is confirmed and Gyantex is preparing your order."}
         {order.status === "pending_payment" && "Paystack has not confirmed payment yet. No fulfillment starts until payment is confirmed."}
         {order.status === "failed" && "Your card or MoMo payment was not completed, so nothing was charged."}
         {order.status === "expired" && "This order expired before payment completed."}
@@ -99,8 +107,8 @@ export default function OrderStatusCard({ order }: { order: OrderStatusData }) {
         {order.status === "quote_requested" && "Gyantex is reviewing this older order and will contact you with the next step."}
       </p>
 
-      {order.status === "paid" && (
-        <FulfillmentTracker current={order.fulfillmentStatus ?? "pending"} isPickup={order.deliveryZone === "pickup"} />
+      {order.status === "paid" && !isCanceled && (
+        <FulfillmentTracker current={order.fulfillmentStatus ?? "processing"} isPickup={order.deliveryZone === "pickup"} />
       )}
 
       <div className="mb-6 mt-6 space-y-2 border-t border-soft-grey pt-4 text-left">

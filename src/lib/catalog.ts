@@ -89,7 +89,9 @@ export interface ProductColorOption {
  * photo, and an optional price (blank = the product's base price). A row can
  * set just a color, just a size, both together (e.g. "Gold — Lace, 12
  * Yards" as one priced, photographed row), or a product can have none at all
- * (a plain single-priced item, no picker shown).
+ * (a plain single-priced item, no picker shown). `inStock` (default true)
+ * lets the owner pull one specific row from sale — e.g. "Black — Half
+ * Piece" sold out — without touching the rest of the product.
  */
 export interface ProductVariant {
   color?: string;
@@ -98,6 +100,13 @@ export interface ProductVariant {
   size?: string;
   image?: string;
   price?: number;
+  inStock?: boolean;
+}
+
+/** False only when a variant has been explicitly marked out of stock —
+ * absent/true both mean available, so existing rows stay sellable by default. */
+export function isVariantInStock(variant: Pick<ProductVariant, "inStock">): boolean {
+  return variant.inStock !== false;
 }
 
 /** A human label for a variant row, combining whichever of color/size are set. */

@@ -12,6 +12,7 @@ import {
   getVariantLabel,
   getVariantSwatchStyle,
   isQuoteProduct,
+  isVariantInStock,
   normalizeCatalogProduct,
 } from "@/lib/catalog";
 import ProductImage from "@/components/ProductImage";
@@ -365,10 +366,14 @@ function PosProductCard({
   onQuickAdd: () => void;
   onAddVariant: (line: Omit<PosCartLine, "lineId">) => void;
 }) {
-  const variants = product.variants || [];
-  const hasVariants = variants.length > 0;
+  const allVariants = product.variants || [];
+  const variants = allVariants.filter(isVariantInStock);
+  const hasVariants = allVariants.length > 0;
   const stock = product.trackInventory === false ? null : (product.stockUnits ?? 0) - (product.reservedUnits ?? 0);
-  const outOfStock = stock !== null && stock <= 0;
+  // Every defined variant has been marked out of stock — distinct from a
+  // plain product with no variants at all, which is never blocked by this.
+  const soldOut = allVariants.length > 0 && variants.length === 0;
+  const outOfStock = (stock !== null && stock <= 0) || soldOut;
 
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => getDefaultVariantIndex(variants));
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
@@ -416,7 +421,7 @@ function PosProductCard({
         className="relative block aspect-square w-full overflow-hidden bg-soft-grey text-left disabled:cursor-not-allowed disabled:opacity-50"
       >
         <ProductImage src={product.imageUrl} alt={product.name} sizes="200px" className="object-cover" />
-        {stock !== null && (
+        {(stock !== null || soldOut) && (
           <span className={`absolute right-1.5 top-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${outOfStock ? "bg-terracotta text-white" : "bg-white/90 text-charcoal"}`}>
             {outOfStock ? "Out of stock" : `${stock} left`}
           </span>

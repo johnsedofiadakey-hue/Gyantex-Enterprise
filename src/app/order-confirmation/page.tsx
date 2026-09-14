@@ -60,7 +60,7 @@ function OrderConfirmationContent() {
   useEffect(() => {
     if (state !== "found" || !order || !reference || !token) return;
     if (order.status === "expired" || order.status === "failed") return;
-    if (order.status === "paid" && order.fulfillmentStatus === "delivered") return;
+    if (order.status === "paid" && (order.fulfillmentStatus === "delivered" || order.fulfillmentStatus === "canceled")) return;
 
     const getOrderStatus = httpsCallable(functions, "getOrderStatus");
     const interval = setInterval(() => {

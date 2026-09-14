@@ -23,12 +23,15 @@ export interface ProductColorOption {
  * ProductVariant. `color`/`size` are matched against the cart item's own
  * `color`/`size` (by exact string equality, both undefined counting as a
  * match) to find the row the customer picked; `price`, when set on that row,
- * is what gets charged instead of the product's base price. hex/hex2/image
- * are display-only, never read here. */
+ * is what gets charged instead of the product's base price. `inStock`
+ * (false only when explicitly turned off — absent/true both mean available)
+ * makes that lookup reject the sale outright. hex/hex2/image are
+ * display-only, never read here. */
 export interface ProductVariant {
   color?: string;
   size?: string;
   price?: number;
+  inStock?: boolean;
 }
 
 export interface CartItemInput {
@@ -115,6 +118,12 @@ function priceFromColor(product: ProductPriceData, color?: string): number | nul
 function priceFromVariant(product: ProductPriceData, color?: string, size?: string): number | null {
   if (!product.variants?.length) return null;
   const match = product.variants.find((v) => (v.color || undefined) === (color || undefined) && (v.size || undefined) === (size || undefined));
+  // Reject outright rather than falling through to a legacy price source —
+  // the owner marked this specific row unavailable (e.g. sold out) after the
+  // customer may have loaded the page with it still showing as selectable.
+  if (match && match.inStock === false) {
+    throw new Error(`"${product.name || 'That item'}" in this option is no longer available.`);
+  }
   return match?.price ?? null;
 }
 

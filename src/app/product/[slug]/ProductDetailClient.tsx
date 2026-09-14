@@ -23,6 +23,7 @@ import {
   getDefaultVariantIndex,
   getVariantLabel,
   getVariantSwatchStyle,
+  isVariantInStock,
   type CatalogProduct,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -42,7 +43,9 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   const toast = useToastStore((state) => state.show);
 
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => getDefaultVariantIndex(initialProduct?.variants));
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() =>
+    getDefaultVariantIndex((initialProduct?.variants || []).filter(isVariantInStock))
+  );
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
@@ -70,7 +73,10 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
     );
   }
 
-  const variants = product.variants || [];
+  const variants = (product.variants || []).filter(isVariantInStock);
+  // The product defines variants, but every one is currently out of stock —
+  // distinct from a plain product with no variants at all, which is always buyable.
+  const soldOut = (product.variants?.length ?? 0) > 0 && variants.length === 0;
   const selectedVariant = variants[selectedVariantIndex];
   // A variant with its own size (e.g. "12 Yards") already lets the owner
   // price each length independently — showing the generic full/half toggle
@@ -316,14 +322,20 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
             </div>
 
             <div className="mt-8">
-              <motion.button
-                whileTap={{ scale: 0.97 }}
-                onClick={addToCart}
-                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
-              >
-                <ShoppingBag size={18} />
-                Add to Cart
-              </motion.button>
+              {soldOut ? (
+                <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey px-5 text-sm font-medium text-charcoal/50">
+                  Out of stock
+                </div>
+              ) : (
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={addToCart}
+                  className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
+                >
+                  <ShoppingBag size={18} />
+                  Add to Cart
+                </motion.button>
+              )}
             </div>
 
             <div className="mt-8 grid gap-3 border-t border-soft-grey pt-6 text-sm text-charcoal/72">
@@ -361,14 +373,20 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
       </main>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-soft-grey bg-white p-3 shadow-2xl md:hidden">
-        <motion.button
-          whileTap={{ scale: 0.97 }}
-          onClick={addToCart}
-          className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white"
-        >
-          <ShoppingBag size={17} />
-          Add to Cart
-        </motion.button>
+        {soldOut ? (
+          <div className="flex min-h-[48px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
+            Out of stock
+          </div>
+        ) : (
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={addToCart}
+            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white"
+          >
+            <ShoppingBag size={17} />
+            Add to Cart
+          </motion.button>
+        )}
       </div>
 
       <Footer />

@@ -34,7 +34,7 @@ interface Order {
   projectDetails?: { organization?: string; neededBy?: string; brief?: string };
   totalAmount: number;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus: "pending" | "processing" | "delivered";
+  fulfillmentStatus: "pending" | "processing" | "shipped" | "delivered" | "canceled";
   channel: "paystack" | "whatsapp" | "pos";
   paymentMethod?: "cash" | "mobile_money";
   staffEmail?: string;
@@ -48,6 +48,10 @@ const STATUS_TABS = [
   { key: "all", label: "All" },
   { key: "pending_payment", label: "Pending Payment" },
   { key: "failed", label: "Failed / Expired" },
+  { key: "processing", label: "Processing" },
+  { key: "shipped", label: "Shipped" },
+  { key: "completed", label: "Completed" },
+  { key: "canceled", label: "Canceled" },
 ];
 
 const PAYMENT_BADGE: Record<Order["status"], { label: string; className: string }> = {
@@ -59,14 +63,30 @@ const PAYMENT_BADGE: Record<Order["status"], { label: string; className: string 
   expired: { label: "Expired", className: "bg-charcoal/10 text-charcoal/60" },
 };
 
-const FULFILLMENT_OPTIONS: Order["fulfillmentStatus"][] = ["pending", "processing", "delivered"];
+// A paid order is never actually "pending" — finalizeOrderPayment moves it
+// straight to "processing" in the same step that marks it paid, so that
+// value only ever exists transiently before payment (where this dropdown
+// doesn't show at all). "Shipped" only makes sense for a delivery order —
+// a pickup order goes straight from Processing to Picked Up, no transit leg.
+function fulfillmentOptionsFor(isPickup: boolean): Order["fulfillmentStatus"][] {
+  return isPickup ? ["processing", "delivered", "canceled"] : ["processing", "shipped", "delivered", "canceled"];
+}
 
 // "Delivered" reads as "Picked Up" for pickup orders — same underlying
 // status, just the label a pickup order actually earns.
 function fulfillmentLabel(status: Order["fulfillmentStatus"], isPickup: boolean) {
   if (status === "delivered" && isPickup) return "Picked Up";
+  if (status === "pending") return "Processing";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
+
+const FULFILLMENT_TEXT_CLASS: Record<Order["fulfillmentStatus"], string> = {
+  pending: "text-charcoal/70",
+  processing: "text-charcoal/70",
+  shipped: "text-teal font-medium",
+  delivered: "text-olive font-medium",
+  canceled: "text-terracotta font-medium",
+};
 
 export default function AdminOrdersPage() {
   const { role } = useAdminRole();
@@ -96,6 +116,10 @@ export default function AdminOrdersPage() {
   const visible = orders.filter((o) => {
     if (tab === "all") return true;
     if (tab === "failed") return o.status === "failed" || o.status === "expired";
+    if (tab === "processing") return o.status === "paid" && o.fulfillmentStatus === "processing";
+    if (tab === "shipped") return o.status === "paid" && o.fulfillmentStatus === "shipped";
+    if (tab === "completed") return o.status === "paid" && o.fulfillmentStatus === "delivered";
+    if (tab === "canceled") return o.status === "paid" && o.fulfillmentStatus === "canceled";
     return o.status === tab;
   });
 
@@ -204,12 +228,12 @@ export default function AdminOrdersPage() {
                             onChange={(e) => updateFulfillment(order.id, e.target.value as Order["fulfillmentStatus"])}
                             className="border border-charcoal/20 rounded-md px-2 py-1.5 text-sm bg-white outline-none focus:border-olive"
                           >
-                            {FULFILLMENT_OPTIONS.map((opt) => (
+                            {fulfillmentOptionsFor(order.deliveryZone === "pickup").map((opt) => (
                               <option key={opt} value={opt}>{fulfillmentLabel(opt, order.deliveryZone === "pickup")}</option>
                             ))}
                           </select>
                         ) : (
-                          <span className="text-sm text-charcoal/70">
+                          <span className={`text-sm ${FULFILLMENT_TEXT_CLASS[order.fulfillmentStatus]}`}>
                             {fulfillmentLabel(order.fulfillmentStatus, order.deliveryZone === "pickup")}
                           </span>
                         )}

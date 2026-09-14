@@ -62,7 +62,9 @@ interface Product {
  * the product's base price), and an optional photo. `image` holds an
  * already-uploaded URL; `pendingFile` holds a newly-chosen photo not yet
  * uploaded, kept directly on the row (not a separate index-keyed map) so it
- * always travels with the right row through adding/removing/reordering. */
+ * always travels with the right row through adding/removing/reordering.
+ * `inStock` (default true) pulls just this one row from sale when it's sold
+ * out, without touching the rest of the product. */
 interface VariantDraft {
   color: string;
   hex: string;
@@ -71,13 +73,14 @@ interface VariantDraft {
   price: string;
   image?: string;
   pendingFile?: File;
+  inStock: boolean;
 }
 
 const DEFAULT_VARIANT_DRAFTS: VariantDraft[] = [
-  { color: "Black", hex: "#111111", size: "", price: "" },
-  { color: "White", hex: "#ffffff", size: "", price: "" },
-  { color: "Burgundy", hex: "#7b1e2b", size: "", price: "" },
-  { color: "Gold", hex: "#c8b27a", size: "", price: "" },
+  { color: "Black", hex: "#111111", size: "", price: "", inStock: true },
+  { color: "White", hex: "#ffffff", size: "", price: "", inStock: true },
+  { color: "Burgundy", hex: "#7b1e2b", size: "", price: "", inStock: true },
+  { color: "Gold", hex: "#c8b27a", size: "", price: "", inStock: true },
 ];
 
 const EMPTY_FORM = {
@@ -162,6 +165,7 @@ export default function AdminProductsPage() {
         size: variant.size || "",
         image: variant.image,
         price: variant.price !== undefined ? String(variant.price) : "",
+        inStock: variant.inStock !== false,
       })),
       trackInventory: product.trackInventory !== false && (product.price || 0) > 0,
       stockUnits: String(product.stockUnits ?? ""),
@@ -216,6 +220,8 @@ export default function AdminProductsPage() {
             ...(draft.size.trim() ? { size: draft.size.trim() } : {}),
             ...(image ? { image } : {}),
             ...(draft.price.trim() && !Number.isNaN(variantPrice) ? { price: variantPrice } : {}),
+            // Only stored when explicitly off — absent means in stock.
+            ...(draft.inStock === false ? { inStock: false } : {}),
           };
           return variant;
         })
@@ -473,7 +479,10 @@ export default function AdminProductsPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setForm({ ...form, variants: [...form.variants, { color: "", hex: "#111111", size: "", price: "" }] })
+                      setForm({
+                        ...form,
+                        variants: [...form.variants, { color: "", hex: "#111111", size: "", price: "", inStock: true }],
+                      })
                     }
                     className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
                   >
@@ -484,6 +493,7 @@ export default function AdminProductsPage() {
                   One row per thing you actually sell — a color, a size (e.g. &quot;12 Yards&quot;), or both together as
                   one row (e.g. &quot;Gold — Lace, 12 Yards&quot;) at its own price and photo. Leave price blank to use the
                   product&apos;s base price above. Turn on Two-tone for a combo cloth (e.g. &quot;Red &amp; Black&quot;).
+                  Uncheck In stock to pull just that one row from sale when it sells out.
                 </p>
                 {form.variants.length === 0 ? (
                   <p className="text-xs text-charcoal/50">
@@ -598,6 +608,22 @@ export default function AdminProductsPage() {
                               setForm({ ...form, variants: next });
                             }}
                           />
+                        </label>
+                        <label
+                          className="flex shrink-0 items-center gap-1.5 text-xs text-charcoal/60"
+                          title="Uncheck to pull just this row from sale, e.g. it's sold out"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={variant.inStock}
+                            onChange={(event) => {
+                              const next = [...form.variants];
+                              next[index] = { ...next[index], inStock: event.target.checked };
+                              setForm({ ...form, variants: next });
+                            }}
+                            className="accent-olive"
+                          />
+                          In stock
                         </label>
                         <button
                           type="button"

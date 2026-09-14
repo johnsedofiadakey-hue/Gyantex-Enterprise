@@ -13,7 +13,7 @@ interface Order {
   customer: { firstName: string; lastName: string };
   totalAmount: number;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus: "pending" | "processing" | "delivered";
+  fulfillmentStatus: "pending" | "processing" | "shipped" | "delivered" | "canceled";
   createdAt?: { toDate: () => Date };
 }
 
@@ -58,7 +58,10 @@ export default function AdminDashboard() {
 
   const paidInRange = inRange.filter((o) => o.status === "paid");
   const totalSales = paidInRange.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-  const pendingOrders = orders.filter((o) => o.status === "paid" && o.fulfillmentStatus === "pending").length;
+  // A paid order is never actually "pending" — finalizeOrderPayment moves it
+  // straight to "processing" in the same step that marks it paid — so this
+  // counts the real active-work queue instead of a value no order ever has.
+  const processingOrders = orders.filter((o) => o.status === "paid" && o.fulfillmentStatus === "processing").length;
   const stockProducts = products.filter((p) => p.trackInventory !== false && p.priceMode !== "quote" && typeof p.stockUnits === "number");
   const lowStock = stockProducts.filter((p) => (p.stockUnits ?? 0) > 0 && (p.stockUnits ?? 0) <= 4);
   const outOfStock = stockProducts.filter((p) => (p.stockUnits ?? 0) <= 0);
@@ -66,7 +69,7 @@ export default function AdminDashboard() {
   const stats = [
     { name: "Total Sales", value: `GHS ${totalSales.toFixed(2)}` },
     { name: "Orders", value: String(inRange.length) },
-    { name: "Pending Fulfillment", value: String(pendingOrders) },
+    { name: "Processing", value: String(processingOrders) },
     { name: "Low Stock Items", value: String(lowStock.length), alert: lowStock.length > 0 },
   ];
 

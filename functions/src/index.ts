@@ -1043,15 +1043,22 @@ export const recordPosSale = functions.https.onCall(async (data: PosSaleInput, c
 
 /**
  * 11. Notify On Fulfillment Change
- * Every order gets exactly two customer SMS: one when payment is confirmed
- * (sent from finalizeOrderPayment) and one when it's actually done — this
- * fires that second one, the moment staff mark an order "delivered" in
- * Admin → Orders (works for both web/Paystack and POS orders, since it
- * watches the orders collection directly rather than a specific creation
- * path). Deliberately not wired to "processing" or any middle state — two
- * touchpoints is the whole point, not a running commentary. Wording adapts
- * to "picked up" vs "delivered" based on the order's delivery zone, but
- * it's the same one SMS either way.
+ * Reacts to any fulfillmentStatus change on a paid order (works for both
+ * web/Paystack and POS orders, since it watches the orders collection
+ * directly rather than a specific creation path). Two things happen here,
+ * both keyed off the same before/after diff:
+ *
+ * - "delivered" (or "Picked Up" for pickup orders): sends the second of the
+ *   two customer SMS touchpoints — confirmed+processing (from
+ *   finalizeOrderPayment), then this one. "shipped" deliberately sends
+ *   nothing: the customer's tracking page already shows it live, and a
+ *   third routine SMS isn't worth the cost for a mid-pipeline update.
+ * - "canceled": restores the stock that was deducted when the order was
+ *   paid (finalizeOrderPayment/recordPosSale both deduct at that point, not
+ *   at delivery, so a canceled order's stock must be added back or
+ *   inventory counts drift low forever), and sends its own SMS — a
+ *   cancellation is important enough to be worth the message even though
+ *   it's a third touchpoint.
  *
  * This one is a 2nd-gen (Eventarc) trigger, not v1 like the rest of this
  * file — this project's Firestore database lives in the multi-region
@@ -1064,18 +1071,40 @@ export const notifyOnFulfillmentChange = onDocumentUpdated('orders/{orderId}', a
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
-
   if (before.fulfillmentStatus === after.fulfillmentStatus) return;
-  if (after.fulfillmentStatus !== 'delivered') return;
-  if (!after.customer?.phone) return;
 
   const orderId = event.params.orderId;
   const orderLabel = after.orderNumber || orderId;
   const trackingUrl = after.confirmToken ? buildTrackingUrl(orderId, after.confirmToken) : '';
   const itemCount = (after.items || []).reduce((sum: number, item: { quantity?: number }) => sum + (item.quantity || 0), 0);
   const itemSummary = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
-  const isPickup = after.deliveryZone === 'pickup';
 
+  if (after.fulfillmentStatus === 'canceled') {
+    const items: CartItemInput[] = after.items || [];
+    const productRefs = items.map((item) => db.collection('products').doc(item.productId));
+    const productSnaps = await Promise.all(productRefs.map((ref) => ref.get()));
+    await Promise.all(
+      productSnaps.map((snap, i) => {
+        if (!snap.exists) return null;
+        const productData = snap.data() as ProductPriceData;
+        if (!shouldTrackInventory(productData)) return null;
+        return snap.ref.update({ stockUnits: admin.firestore.FieldValue.increment(computeUnitsForItem(items[i])) });
+      })
+    );
+
+    if (after.customer?.phone) {
+      await sendSMS(
+        after.customer.phone,
+        `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been canceled. Message us on WhatsApp if you have questions. - Gyantex Enterprise`
+      );
+    }
+    return;
+  }
+
+  if (after.fulfillmentStatus !== 'delivered') return;
+  if (!after.customer?.phone) return;
+
+  const isPickup = after.deliveryZone === 'pickup';
   const message = isPickup
     ? `Hi ${after.customer.firstName}, your order ${orderLabel} (${itemSummary}) has been picked up. Thank you for choosing Gyantex Enterprise!` +
       (trackingUrl ? ` Details: ${trackingUrl}` : '')

@@ -8,6 +8,7 @@ import {
   getPriceLabel,
   getVariantLabel,
   getVariantSwatchStyle,
+  isVariantInStock,
   type CatalogProduct,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -56,11 +57,14 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const toast = useToastStore((state) => state.show);
 
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => getDefaultVariantIndex(product.variants));
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() =>
+    getDefaultVariantIndex((product.variants || []).filter(isVariantInStock))
+  );
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
 
-  const variants = product.variants || [];
+  const variants = (product.variants || []).filter(isVariantInStock);
+  const soldOut = (product.variants?.length ?? 0) > 0 && variants.length === 0;
   const selectedVariant = variants[selectedVariantIndex];
   // A variant with its own size (e.g. "12 Yards") already lets the owner
   // price each length independently — showing the generic full/half toggle
@@ -309,13 +313,19 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
           </div>
 
           <div className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
-            <button
-              onClick={handleAdd}
-              className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90"
-            >
-              <Check size={18} />
-              Add to Cart — GHS {(unitPrice * quantity).toFixed(2)}
-            </button>
+            {soldOut ? (
+              <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
+                Out of stock
+              </div>
+            ) : (
+              <button
+                onClick={handleAdd}
+                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90"
+              >
+                <Check size={18} />
+                Add to Cart — GHS {(unitPrice * quantity).toFixed(2)}
+              </button>
+            )}
           </div>
         </motion.div>
       </div>
