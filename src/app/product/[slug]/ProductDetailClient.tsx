@@ -24,7 +24,6 @@ import {
   getOptionValuePrice,
   getProductColorOptions,
   getSwatchStyle,
-  getSelectedOptionImage,
   getSelectedOptionsPrice,
   hasPricedOptionValue,
   type CatalogProduct,
@@ -87,20 +86,20 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   const effectivePurchaseType = canSplit ? purchaseType : "full";
   const colorOptions = getProductColorOptions(product);
   const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
-  // A priced color swatch (e.g. "Gold — Lace") wins first — it's the most
-  // specific "which physical item" choice — then a priced option value,
-  // then the product's base price. Mirrors functions/src/lib/pricing.ts's
-  // computeItemUnitPrice exactly, since the server re-derives this price
-  // independently and must agree with what the customer sees here.
+  // A priced color swatch (e.g. "Gold — Lace") wins over a priced Customer-
+  // choices value if a product genuinely has both set, but that combination
+  // isn't really supported — the admin form warns against it, because there's
+  // no single correct price for "this color AND this length" from two
+  // independent flat lists. A product that needs both dimensions priced
+  // should list each real combination as its own color instead (e.g. "Gold
+  // Lace — 12 Yards"). This fallback order just needs to be deterministic and
+  // match functions/src/lib/pricing.ts's computeItemUnitPrice exactly, since
+  // the server re-derives this price independently.
   const selectedColorPrice = colorOptions[selectedColor]?.price;
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
   const basePrice = selectedColorPrice ?? selectedOptionsPrice ?? product.price;
   const unitPrice = effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
-  // A selected Customer-choice value with its own photo (e.g. "Fabric: Lace")
-  // wins first — it's usually a bigger visual difference than a colorway —
-  // then a color with its own photo, then manual gallery browsing.
-  const selectedOptionImage = getSelectedOptionImage(product.optionGroups, selectedOptions);
-  const currentImage = selectedOptionImage || colorOptions[selectedColor]?.image || gallery[selectedImage] || product.imageUrl;
+  const currentImage = colorOptions[selectedColor]?.image || gallery[selectedImage] || product.imageUrl;
 
   const buildCartItem = () => ({
     id: product.id,

@@ -16,7 +16,6 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage
 import { Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
-  getOptionValueImage,
   getOptionValueLabel,
   getOptionValuePrice,
   getPriceLabel,
@@ -59,16 +58,11 @@ interface Product {
 
 /** Editable form shape for one value within an option group — `price` is a
  * plain string while typing; blank means "use the product's base price".
- * `image` holds an already-uploaded URL (e.g. the real photo of this value's
- * cloth in lace vs the base fabric); `pendingFile` holds a newly-chosen photo
- * not yet uploaded. Keeping it directly on the value (rather than a separate
- * index-keyed map, like colorImageFiles) means it always travels with the
- * right value through adding/removing/reordering — no index to fall out of sync. */
+ * No photo here — see ProductColorOption for a value that needs its own
+ * picture (a variant like "Gold — Lace" is listed as its own color instead). */
 interface OptionValueDraft {
   label: string;
   price: string;
-  image?: string;
-  pendingFile?: File;
 }
 
 /** Editable form shape for an option group (e.g. "Cloth Length"). */
@@ -123,6 +117,12 @@ export default function AdminProductsPage() {
   const [colorImageFiles, setColorImageFiles] = useState<Record<number, File>>({});
   const [saving, setSaving] = useState(false);
   const toast = useToastStore((state) => state.show);
+
+  // Warns when both are priced on the same draft — see the note above the
+  // Customer choices section for why that combination doesn't have a single
+  // correct price and should be flattened into colors instead.
+  const hasColorPricing = form.colorOptions.some((color) => color.price.trim());
+  const hasOptionPricing = form.optionGroups.some((group) => group.values.some((value) => value.price.trim()));
 
   useEffect(() => {
     const productQuery = query(collection(db, "products"), orderBy("createdAt", "desc"));
@@ -184,7 +184,6 @@ export default function AdminProductsPage() {
         values: group.values.map((value) => ({
           label: getOptionValueLabel(value),
           price: getOptionValuePrice(value) !== undefined ? String(getOptionValuePrice(value)) : "",
-          image: getOptionValueImage(value),
         })),
       })),
       trackInventory: product.trackInventory !== false && (product.price || 0) > 0,
@@ -248,34 +247,18 @@ export default function AdminProductsPage() {
       );
       const colorOptions: ProductColorOption[] = colorUploads.filter((c): c is ProductColorOption => c !== null);
 
-      // Same parallel-upload pattern as color photos above — each option
-      // value's photo (e.g. "Fabric: Lace" showing the real lace cloth
-      // instead of the base fabric) is independent.
-      const resolvedOptionGroupsRaw = await Promise.all(
-        form.optionGroups.map(async (group) => {
-          const values = await Promise.all(
-            group.values.map(async (value) => {
+      const resolvedOptionGroups: ProductOptionGroup[] = form.optionGroups
+        .map((group) => ({
+          label: group.label.trim(),
+          values: group.values
+            .filter((value) => value.label.trim())
+            .map((value) => {
               const label = value.label.trim();
-              if (!label) return null;
               const price = Number(value.price);
-              let image = value.image || "";
-              if (value.pendingFile) {
-                const compressed = await compressImageForUpload(value.pendingFile);
-                const optionStorageRef = ref(storage, `products/options/${Date.now()}_${compressed.name}`);
-                await uploadBytes(optionStorageRef, compressed);
-                image = await getDownloadURL(optionStorageRef);
-              }
-              const hasPrice = value.price.trim() && !Number.isNaN(price);
-              if (!hasPrice && !image) return label;
-              return { label, ...(hasPrice ? { price } : {}), ...(image ? { image } : {}) };
-            })
-          );
-          return { label: group.label.trim(), values: values.filter((v) => v !== null) };
-        })
-      );
-      const resolvedOptionGroups: ProductOptionGroup[] = resolvedOptionGroupsRaw.filter(
-        (group) => group.label && group.values.length > 0
-      ) as ProductOptionGroup[];
+              return value.price.trim() && !Number.isNaN(price) ? { label, price } : label;
+            }),
+        }))
+        .filter((group) => group.label && group.values.length > 0);
 
       // The main/listing photo: a manually chosen file wins, otherwise fall
       // back to the first color's photo (so products with color photos don't
@@ -321,17 +304,9 @@ export default function AdminProductsPage() {
 
         // Clean up any photo that was on this product before but isn't
         // referenced by the version we just saved — a replaced main photo, a
-        // replaced color photo, a replaced/removed option-value photo (e.g.
-        // an old "Lace" photo swapped for a new one), or a color/value that
-        // got removed entirely.
-        const oldOptionImages = (editing.optionGroups || []).flatMap((group) => group.values.map(getOptionValueImage));
-        const newOptionImages = resolvedOptionGroups.flatMap((group) => group.values.map(getOptionValueImage));
-        const oldUrls = [editing.imageUrl, ...(editing.colorOptions || []).map((c) => c.image), ...oldOptionImages].filter(
-          Boolean
-        ) as string[];
-        const newUrls = new Set(
-          [imageUrl, ...colorOptions.map((c) => c.image), ...newOptionImages].filter(Boolean) as string[]
-        );
+        // replaced color photo, or a color that got removed entirely.
+        const oldUrls = [editing.imageUrl, ...(editing.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
+        const newUrls = new Set([imageUrl, ...colorOptions.map((c) => c.image)].filter(Boolean) as string[]);
         const orphaned = oldUrls.filter((url) => !newUrls.has(url));
         await Promise.all(orphaned.map(deleteStorageImage));
       } else {
@@ -356,10 +331,7 @@ export default function AdminProductsPage() {
     try {
       await deleteDoc(doc(db, "products", product.id));
       toast("Product deleted.", "success");
-      const optionImages = (product.optionGroups || []).flatMap((group) => group.values.map(getOptionValueImage));
-      const urls = [product.imageUrl, ...(product.colorOptions || []).map((c) => c.image), ...optionImages].filter(
-        Boolean
-      ) as string[];
+      const urls = [product.imageUrl, ...(product.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
       await Promise.all(urls.map(deleteStorageImage));
     } catch (error) {
       console.error(error);
@@ -681,9 +653,17 @@ export default function AdminProductsPage() {
                 </div>
                 <p className="mb-2 text-xs text-charcoal/50">
                   E.g. a &quot;Cloth Length&quot; group with 6 Yards, 12 Yards, and Full Piece — each can have its own price.
-                  Leave a value&apos;s price blank to keep it at the product&apos;s base price above. Add a photo to a value
-                  (e.g. a &quot;Fabric: Lace&quot; choice) to show that value&apos;s real photo when a customer picks it.
+                  Leave a value&apos;s price blank to keep it at the product&apos;s base price above. For a variant that
+                  needs its own photo (e.g. &quot;Gold — Lace&quot;), add it as its own color above instead.
                 </p>
+                {hasColorPricing && hasOptionPricing && (
+                  <p className="mb-3 rounded-md bg-terracotta/10 px-3 py-2 text-xs leading-5 text-terracotta">
+                    This product has priced colors <span className="font-medium">and</span> priced Customer choices — when
+                    a customer picks both, only the color&apos;s price is charged and the Customer-choices price is
+                    ignored. If you need a different price per length for a specific variant (e.g. &quot;Gold Lace — 12
+                    Yards&quot;), list each combination as its own color instead, and remove the prices here.
+                  </p>
+                )}
                 {form.optionGroups.length === 0 ? (
                   <p className="text-xs text-charcoal/50">
                     None yet — add one if customers should pick a size, cloth length, or garment type before ordering.
@@ -746,37 +726,6 @@ export default function AdminProductsPage() {
                                   className="w-28 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
                                 />
                               </div>
-                              <label
-                                className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-charcoal/30 px-2.5 py-2 text-xs hover:border-olive/50"
-                                title="Optional — shows this photo when a customer picks this value (e.g. the real Lace cloth)"
-                              >
-                                {value.pendingFile ? (
-                                  <span className="max-w-[80px] truncate">{value.pendingFile.name}</span>
-                                ) : value.image ? (
-                                  <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded">
-                                    <ProductImage src={value.image} alt={value.label || "Value photo"} sizes="28px" className="object-cover" />
-                                  </div>
-                                ) : (
-                                  <>
-                                    <Upload size={13} className="text-charcoal/50" />
-                                    <span className="text-charcoal/60">Photo</span>
-                                  </>
-                                )}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(event) => {
-                                    const file = event.target.files?.[0];
-                                    if (!file) return;
-                                    const next = [...form.optionGroups];
-                                    const values = [...next[groupIndex].values];
-                                    values[valueIndex] = { ...values[valueIndex], pendingFile: file };
-                                    next[groupIndex] = { ...next[groupIndex], values };
-                                    setForm({ ...form, optionGroups: next });
-                                  }}
-                                />
-                              </label>
                               <button
                                 type="button"
                                 onClick={() => {

@@ -8,7 +8,6 @@ import {
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
-  getSelectedOptionImage,
   getSelectedOptionsPrice,
   getSwatchStyle,
   hasPricedOptionValue,
@@ -75,24 +74,24 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   // MUCH of it, so full/half stays meaningful and isn't disabled by it.
   const canSplit = !hasPricedOptionValue(product.optionGroups);
   const colorOptions = getProductColorOptions(product);
-  // A priced color swatch wins first, then a priced option value, then the
-  // base price — mirrors functions/src/lib/pricing.ts's computeItemUnitPrice.
+  // A priced color swatch wins over a priced Customer-choices value if a
+  // product genuinely has both set, but that combination isn't really
+  // supported — the admin form warns against it (see admin/products). A
+  // product needing both dimensions priced should list each real
+  // combination as its own color instead (e.g. "Gold Lace — 12 Yards").
+  // Mirrors functions/src/lib/pricing.ts's computeItemUnitPrice exactly.
   const selectedColorPrice = colorOptions[selectedColor]?.price;
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
   const fullPiecePrice = selectedColorPrice ?? selectedOptionsPrice ?? product.price;
   const unitPrice = purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
   const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
 
-  // A selected Customer-choice value with its own photo (e.g. "Fabric: Lace")
-  // wins first — it's usually a bigger visual difference than a colorway —
-  // then a color with its own photo, then the product's default gallery.
-  const selectedOptionImage = getSelectedOptionImage(product.optionGroups, selectedOptions);
   const gallery = useMemo(() => {
     const colorImage = colorOptions[selectedColor]?.image;
-    return [selectedOptionImage, colorImage, product.imageUrl, ...(product.gallery || [])].filter(
+    return [colorImage, product.imageUrl, ...(product.gallery || [])].filter(
       (src, index, list): src is string => Boolean(src) && list.indexOf(src) === index
     );
-  }, [selectedOptionImage, colorOptions, selectedColor, product.imageUrl, product.gallery]);
+  }, [colorOptions, selectedColor, product.imageUrl, product.gallery]);
   const image = gallery[selectedImage] || gallery[0];
 
   const similarProducts = useMemo(
@@ -276,10 +275,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                       return (
                         <button
                           key={label}
-                          onClick={() => {
-                            setSelectedOptions((prev) => ({ ...prev, [group.label]: label }));
-                            setSelectedImage(0);
-                          }}
+                          onClick={() => setSelectedOptions((prev) => ({ ...prev, [group.label]: label }))}
                           aria-pressed={active}
                           className={`min-h-[40px] rounded-lg border px-3 py-2 text-sm font-semibold transition ${
                             active ? "border-olive bg-olive text-white" : "border-charcoal/15 bg-white hover:border-olive"

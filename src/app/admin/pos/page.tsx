@@ -11,7 +11,6 @@ import {
   getOptionValuePrice,
   getPriceLabel,
   getProductColorOptions,
-  getSelectedOptionImage,
   getSelectedOptionsPrice,
   getSwatchStyle,
   hasPricedOptionValue,
@@ -387,9 +386,10 @@ function PosProductCard({
   // toggle would just duplicate it with a forced 50% split.
   const canSplit = !hasPricedOptionValue(product.optionGroups);
 
-  // A priced color swatch wins first, then a priced option value, then the
-  // base price — mirrors functions/src/lib/pricing.ts's computeItemUnitPrice,
-  // since recordPosSale re-derives this price server-side independently.
+  // A priced color swatch wins over a priced option value if a product
+  // genuinely has both — see the admin Products form's warning against
+  // combining them. Mirrors functions/src/lib/pricing.ts's
+  // computeItemUnitPrice, since recordPosSale re-derives this server-side.
   const unitPrice = colorOptions[selectedColor]?.price ?? getSelectedOptionsPrice(product.optionGroups, selectedOptions) ?? product.price;
   const finalUnitPrice = purchaseType === "half" ? unitPrice / 2 : unitPrice;
 
@@ -406,7 +406,7 @@ function PosProductCard({
     onAddVariant({
       productId: product.id,
       name: product.name,
-      image: getSelectedOptionImage(product.optionGroups, selectedOptions) || colorOptions[selectedColor]?.image || product.imageUrl,
+      image: colorOptions[selectedColor]?.image || product.imageUrl,
       unitPrice: finalUnitPrice,
       color: colorOptions[selectedColor]?.name,
       selections: Object.keys(selectedOptions).length ? selectedOptions : undefined,

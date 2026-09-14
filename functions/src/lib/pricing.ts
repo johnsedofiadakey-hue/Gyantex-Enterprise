@@ -1,10 +1,8 @@
 export type PurchaseType = 'full' | 'half';
 export type PriceMode = 'fixed' | 'quote';
 
-/** A selectable value within an option group — plain string values carry no
- * price or photo. `image` (kept in sync with src/lib/catalog.ts's copy of
- * this type) is display-only, never read here — pricing never depends on it. */
-export type ProductOptionValue = string | { label: string; price?: number; image?: string };
+/** A selectable value within an option group — plain string values carry no price. */
+export type ProductOptionValue = string | { label: string; price?: number };
 
 export interface ProductOptionGroup {
   label: string;
@@ -177,14 +175,18 @@ export function shouldTrackInventory(product: ProductPriceData): boolean {
 /**
  * Price per unit for a single item, given its purchase type, whichever color
  * it selected, and whichever priced option values it selected (e.g. cloth
- * length). A priced color (e.g. "Gold — Lace") wins first — it represents
- * the most specific "which physical item" choice — then a priced option
- * value, then the product's base price. Otherwise the base price is used —
- * except when the product has NO base price and relies entirely on
- * color/option pricing (isQuoteProduct already returned false for it on that
- * basis): a missing/unmatched selection there must reject rather than
- * silently fall back to product.price=0, which would let a cart item skip
- * payment entirely. Half piece = half the result.
+ * length). A priced color (e.g. "Gold — Lace") wins over a priced option
+ * value if a product genuinely has both set, but that combination isn't
+ * really supported — there's no single correct price for "this color AND
+ * this length" from two independent flat lists, and the admin form warns
+ * against setting both (src/app/admin/products/page.tsx). A product needing
+ * both dimensions priced should list each real combination as its own color
+ * instead. Otherwise the base price is used — except when the product has NO
+ * base price and relies entirely on color/option pricing (isQuoteProduct
+ * already returned false for it on that basis): a missing/unmatched
+ * selection there must reject rather than silently fall back to
+ * product.price=0, which would let a cart item skip payment entirely. Half
+ * piece = half the result.
  */
 export function computeItemUnitPrice(
   product: ProductPriceData,

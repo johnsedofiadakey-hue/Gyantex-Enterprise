@@ -1,14 +1,14 @@
 export type PriceMode = "fixed" | "quote";
 export type SortOption = "recommended" | "category" | "az";
 
-/** A selectable value within an option group. Plain strings carry no price or
- * photo; an object value can optionally set the product's price (e.g.
- * "12 Yards" → GHS 280) and/or its own photo (e.g. "Lace" showing the actual
- * lace cloth instead of the base product image) when chosen. */
-export type ProductOptionValue = string | { label: string; price?: number; image?: string };
+/** A selectable value within an option group. Plain strings carry no price; an
+ * object value optionally sets the product's price when chosen (e.g. "12 Yards" → GHS 280).
+ * No per-value photo here — a Customer-choices group is for "how much"
+ * (length, size), not "which item"; a variant that needs its own photo (e.g.
+ * "Gold — Lace") is listed as its own color instead, see ProductColorOption. */
+export type ProductOptionValue = string | { label: string; price?: number };
 
-/** A customer-facing choice group on a product — e.g. Cloth Length: [6 Yards, 12 Yards, Full Piece],
- * or Fabric: [Cloth, Lace] where each value carries its own price and photo. */
+/** A customer-facing choice group on a product — e.g. Cloth Length: [6 Yards, 12 Yards, Full Piece]. */
 export interface ProductOptionGroup {
   label: string;
   values: ProductOptionValue[];
@@ -20,10 +20,6 @@ export function getOptionValueLabel(value: ProductOptionValue): string {
 
 export function getOptionValuePrice(value: ProductOptionValue): number | undefined {
   return typeof value === "string" ? undefined : value.price;
-}
-
-export function getOptionValueImage(value: ProductOptionValue): string | undefined {
-  return typeof value === "string" ? undefined : value.image;
 }
 
 /** Sums the price of whichever option value is selected in each group — e.g.
@@ -45,24 +41,6 @@ export function getSelectedOptionsPrice(
     }
   }
   return matched ? total : null;
-}
-
-/** The photo for whichever selected option value (across all groups) has its
- * own image set — e.g. picking "Fabric: Lace" shows the actual lace photo
- * instead of the base product/color image. Undefined if nothing selected
- * carries a photo, so the caller falls back to color/gallery as before. */
-export function getSelectedOptionImage(
-  optionGroups: ProductOptionGroup[] | undefined,
-  selectedOptions: Record<string, string>
-): string | undefined {
-  if (!optionGroups?.length) return undefined;
-  for (const group of optionGroups) {
-    const selectedLabel = selectedOptions[group.label];
-    const value = group.values.find((v) => getOptionValueLabel(v) === selectedLabel);
-    const image = value ? getOptionValueImage(value) : undefined;
-    if (image) return image;
-  }
-  return undefined;
 }
 
 /** Resolves a product's colors, falling back to the legacy hex/name arrays when
