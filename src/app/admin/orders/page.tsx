@@ -34,7 +34,7 @@ interface Order {
   projectDetails?: { organization?: string; neededBy?: string; brief?: string };
   totalAmount: number;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus: "pending" | "processing" | "shipped" | "delivered" | "canceled";
+  fulfillmentStatus: "pending" | "processing" | "shipped" | "out_for_delivery" | "delivered" | "canceled";
   channel: "paystack" | "whatsapp" | "pos";
   paymentMethod?: "cash" | "mobile_money";
   staffEmail?: string;
@@ -66,10 +66,13 @@ const PAYMENT_BADGE: Record<Order["status"], { label: string; className: string 
 // A paid order is never actually "pending" — finalizeOrderPayment moves it
 // straight to "processing" in the same step that marks it paid, so that
 // value only ever exists transiently before payment (where this dropdown
-// doesn't show at all). "Shipped" only makes sense for a delivery order —
-// a pickup order goes straight from Processing to Picked Up, no transit leg.
+// doesn't show at all). "Shipped" and "Out for Delivery" only make sense
+// for a delivery order — a pickup order goes straight from Processing to
+// Picked Up, no transit leg.
 function fulfillmentOptionsFor(isPickup: boolean): Order["fulfillmentStatus"][] {
-  return isPickup ? ["processing", "delivered", "canceled"] : ["processing", "shipped", "delivered", "canceled"];
+  return isPickup
+    ? ["processing", "delivered", "canceled"]
+    : ["processing", "shipped", "out_for_delivery", "delivered", "canceled"];
 }
 
 // "Delivered" reads as "Picked Up" for pickup orders — same underlying
@@ -77,6 +80,7 @@ function fulfillmentOptionsFor(isPickup: boolean): Order["fulfillmentStatus"][] 
 function fulfillmentLabel(status: Order["fulfillmentStatus"], isPickup: boolean) {
   if (status === "delivered" && isPickup) return "Picked Up";
   if (status === "pending") return "Processing";
+  if (status === "out_for_delivery") return "Out for Delivery";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
@@ -84,6 +88,7 @@ const FULFILLMENT_TEXT_CLASS: Record<Order["fulfillmentStatus"], string> = {
   pending: "text-charcoal/70",
   processing: "text-charcoal/70",
   shipped: "text-teal font-medium",
+  out_for_delivery: "text-teal font-medium",
   delivered: "text-olive font-medium",
   canceled: "text-terracotta font-medium",
 };
@@ -117,7 +122,7 @@ export default function AdminOrdersPage() {
     if (tab === "all") return true;
     if (tab === "failed") return o.status === "failed" || o.status === "expired";
     if (tab === "processing") return o.status === "paid" && o.fulfillmentStatus === "processing";
-    if (tab === "shipped") return o.status === "paid" && o.fulfillmentStatus === "shipped";
+    if (tab === "shipped") return o.status === "paid" && (o.fulfillmentStatus === "shipped" || o.fulfillmentStatus === "out_for_delivery");
     if (tab === "completed") return o.status === "paid" && o.fulfillmentStatus === "delivered";
     if (tab === "canceled") return o.status === "paid" && o.fulfillmentStatus === "canceled";
     return o.status === tab;

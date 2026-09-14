@@ -1050,9 +1050,10 @@ export const recordPosSale = functions.https.onCall(async (data: PosSaleInput, c
  *
  * - "delivered" (or "Picked Up" for pickup orders): sends the second of the
  *   two customer SMS touchpoints — confirmed+processing (from
- *   finalizeOrderPayment), then this one. "shipped" deliberately sends
- *   nothing: the customer's tracking page already shows it live, and a
- *   third routine SMS isn't worth the cost for a mid-pipeline update.
+ *   finalizeOrderPayment), then this one. "shipped" and "out_for_delivery"
+ *   deliberately send nothing: the customer's tracking page already shows
+ *   them live, and a third routine SMS isn't worth the cost for a
+ *   mid-pipeline update.
  * - "canceled": restores the stock that was deducted when the order was
  *   paid (finalizeOrderPayment/recordPosSale both deduct at that point, not
  *   at delivery, so a canceled order's stock must be added back or

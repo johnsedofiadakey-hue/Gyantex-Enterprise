@@ -1,12 +1,12 @@
 "use client";
 
-import { CheckCircle2, Clock, Home, Package, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Home, Navigation, Package, Truck, XCircle } from "lucide-react";
 
 export interface OrderStatusData {
   orderId: string;
   orderNumber?: string | null;
   status: "pending_payment" | "paid" | "expired" | "failed" | "whatsapp_pending" | "quote_requested";
-  fulfillmentStatus?: "pending" | "processing" | "shipped" | "delivered" | "canceled";
+  fulfillmentStatus?: "pending" | "processing" | "shipped" | "out_for_delivery" | "delivered" | "canceled";
   totalAmount: number;
   deliveryFee?: number;
   deliveryZone?: string;
@@ -22,7 +22,10 @@ function fulfillmentSteps(isPickup: boolean): Array<{ key: OrderStatusData["fulf
   const steps: Array<{ key: OrderStatusData["fulfillmentStatus"]; label: string; icon: typeof Package }> = [
     { key: "processing", label: "Preparing", icon: Package },
   ];
-  if (!isPickup) steps.push({ key: "shipped", label: "Shipped", icon: Truck });
+  if (!isPickup) {
+    steps.push({ key: "shipped", label: "Shipped", icon: Truck });
+    steps.push({ key: "out_for_delivery", label: "Out for Delivery", icon: Navigation });
+  }
   steps.push({ key: "delivered", label: isPickup ? "Picked Up" : "Delivered", icon: Home });
   return steps;
 }
