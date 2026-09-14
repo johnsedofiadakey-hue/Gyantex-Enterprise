@@ -70,11 +70,16 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   // A product with its own Customer-choices (e.g. Cloth Length) already lets
   // the owner price each option independently — showing the generic
   // full/half toggle on top of that just duplicates it with a forced 50%
-  // split, so it only applies to products that don't define their own.
+  // split, so it only applies to products that don't define their own. A
+  // priced color (e.g. "Gold — Lace") is different: it's WHICH item, not HOW
+  // MUCH of it, so full/half stays meaningful and isn't disabled by it.
   const canSplit = !hasPricedOptionValue(product.optionGroups);
   const colorOptions = getProductColorOptions(product);
+  // A priced color swatch wins first, then a priced option value, then the
+  // base price — mirrors functions/src/lib/pricing.ts's computeItemUnitPrice.
+  const selectedColorPrice = colorOptions[selectedColor]?.price;
   const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
-  const fullPiecePrice = selectedOptionsPrice ?? product.price;
+  const fullPiecePrice = selectedColorPrice ?? selectedOptionsPrice ?? product.price;
   const unitPrice = purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
   const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
 
@@ -205,7 +210,10 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-medium">Color</span>
-                    <span className="text-sm text-charcoal/50">{selectedColorLabel}</span>
+                    <span className="text-sm text-charcoal/50">
+                      {selectedColorLabel}
+                      {selectedColorPrice !== undefined && ` — GHS ${selectedColorPrice.toFixed(2)}`}
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-2.5">
                     {colorOptions.map((color, index) => (
@@ -215,7 +223,8 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                           setSelectedColor(index);
                           setSelectedImage(0);
                         }}
-                        aria-label={`Select ${color.name}`}
+                        aria-label={`Select ${color.name}${color.price !== undefined ? ` — GHS ${color.price.toFixed(2)}` : ""}`}
+                        title={color.price !== undefined ? `${color.name} — GHS ${color.price.toFixed(2)}` : color.name}
                         className={`h-10 w-10 rounded-full border-2 p-0.5 transition ${
                           selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
                         }`}

@@ -80,14 +80,22 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   // A product with its own Customer-choices (e.g. Cloth Length) already lets
   // the owner price each option independently — showing the generic
   // full/half toggle on top of that just duplicates it with a forced 50%
-  // split, so it only applies to products that don't define their own.
+  // split, so it only applies to products that don't define their own. A
+  // priced color (e.g. "Gold — Lace") is different: it's WHICH item, not HOW
+  // MUCH of it, so full/half stays meaningful and isn't disabled by it.
   const canSplit = !hasPricedOptionValue(product.optionGroups);
   const effectivePurchaseType = canSplit ? purchaseType : "full";
-  const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
-  const basePrice = selectedOptionsPrice ?? product.price;
-  const unitPrice = effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
   const colorOptions = getProductColorOptions(product);
   const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
+  // A priced color swatch (e.g. "Gold — Lace") wins first — it's the most
+  // specific "which physical item" choice — then a priced option value,
+  // then the product's base price. Mirrors functions/src/lib/pricing.ts's
+  // computeItemUnitPrice exactly, since the server re-derives this price
+  // independently and must agree with what the customer sees here.
+  const selectedColorPrice = colorOptions[selectedColor]?.price;
+  const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
+  const basePrice = selectedColorPrice ?? selectedOptionsPrice ?? product.price;
+  const unitPrice = effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
   // A selected Customer-choice value with its own photo (e.g. "Fabric: Lace")
   // wins first — it's usually a bigger visual difference than a colorway —
   // then a color with its own photo, then manual gallery browsing.
@@ -234,14 +242,18 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
                     <Palette size={18} className="text-olive" />
                     Color
                   </span>
-                  <span className="text-sm text-charcoal/50">{selectedColorLabel}</span>
+                  <span className="text-sm text-charcoal/50">
+                    {selectedColorLabel}
+                    {selectedColorPrice !== undefined && ` — GHS ${selectedColorPrice.toFixed(2)}`}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {colorOptions.map((color, index) => (
                     <button
                       key={`${color.hex}-${index}`}
                       onClick={() => setSelectedColor(index)}
-                      aria-label={`Select ${color.name}`}
+                      aria-label={`Select ${color.name}${color.price !== undefined ? ` — GHS ${color.price.toFixed(2)}` : ""}`}
+                      title={color.price !== undefined ? `${color.name} — GHS ${color.price.toFixed(2)}` : color.name}
                       className={`h-11 w-11 rounded-full border-2 p-1 transition ${
                         selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
                       }`}

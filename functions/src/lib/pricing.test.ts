@@ -145,3 +145,56 @@ test('order totals sum priced option selections across a multi-item cart', () =>
   const { subtotal } = computeOrderTotals(items, products, 'pickup');
   assert.equal(subtotal, 280 * 2 + 60);
 });
+
+test('a priced color/variant swatch (e.g. "Gold — Lace") overrides the product base price', () => {
+  const product = {
+    price: 300,
+    priceMode: 'fixed' as const,
+    colorOptions: [{ name: 'Red' }, { name: 'Gold — Lace', price: 450 }],
+  };
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold — Lace'), 450);
+  assert.equal(computeItemUnitPrice(product, 'half', undefined, 'Gold — Lace'), 225);
+  // An unpriced color (or none selected) falls back to the base price.
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Red'), 300);
+  assert.equal(computeItemUnitPrice(product, 'full'), 300);
+});
+
+test('a client cannot forge a lower price by sending a fabricated color name', () => {
+  const product = {
+    price: 500,
+    priceMode: 'fixed' as const,
+    colorOptions: [{ name: 'Gold — Lace', price: 450 }],
+  };
+  // "Fake Color" was never offered on this product — no match, so the real base price holds.
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Fake Color'), 500);
+});
+
+test('a priced color wins over a priced option selection when both are present', () => {
+  const product = {
+    price: 150,
+    priceMode: 'fixed' as const,
+    colorOptions: [{ name: 'Gold — Lace', price: 450 }],
+    optionGroups: [{ label: 'Length', values: [{ label: '12 Yards', price: 280 }] }],
+  };
+  assert.equal(computeItemUnitPrice(product, 'full', { Length: '12 Yards' }, 'Gold — Lace'), 450);
+});
+
+test('a product with no base price but a priced color is sellable, not a quote item', () => {
+  const product = {
+    price: 0,
+    priceMode: 'quote' as const,
+    colorOptions: [{ name: 'Gold — Lace', price: 450 }],
+  };
+  assert.equal(isQuoteProduct(product), false);
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold — Lace'), 450);
+  assert.throws(() => computeItemUnitPrice(product, 'full'));
+});
+
+test('order totals include a priced color selection', () => {
+  const items = [{ productId: 'p1', purchaseType: 'full' as const, quantity: 2, color: 'Gold — Lace' }];
+  const products = {
+    p1: { price: 300, priceMode: 'fixed' as const, colorOptions: [{ name: 'Red' }, { name: 'Gold — Lace', price: 450 }] },
+  };
+  const { subtotal } = computeOrderTotals(items, products, 'pickup');
+  assert.equal(subtotal, 450 * 2);
+});

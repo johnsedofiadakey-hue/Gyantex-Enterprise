@@ -80,19 +80,22 @@ interface OptionGroupDraft {
 /** Editable form shape for a color — `image` holds an already-uploaded URL;
  * a newly-chosen photo lives separately in `colorImageFiles` until save.
  * `hex2` is optional — set it for a combo cloth (e.g. "Red & Black") to show
- * a split swatch instead of one solid color. */
+ * a split swatch instead of one solid color. `price` is a plain string while
+ * typing; blank means "use the product's base price" — set it to list a
+ * variant like "Gold — Lace" as its own swatch at its own price. */
 interface ColorDraft {
   name: string;
   hex: string;
   hex2?: string;
   image?: string;
+  price: string;
 }
 
 const DEFAULT_COLOR_DRAFTS: ColorDraft[] = [
-  { name: "Black", hex: "#111111" },
-  { name: "White", hex: "#ffffff" },
-  { name: "Burgundy", hex: "#7b1e2b" },
-  { name: "Gold", hex: "#c8b27a" },
+  { name: "Black", hex: "#111111", price: "" },
+  { name: "White", hex: "#ffffff", price: "" },
+  { name: "Burgundy", hex: "#7b1e2b", price: "" },
+  { name: "Gold", hex: "#c8b27a", price: "" },
 ];
 
 const EMPTY_FORM = {
@@ -169,7 +172,13 @@ export default function AdminProductsPage() {
       category: normalizeCategory(product.category || "Funeral Cloth"),
       description: product.description || "",
       tags: (product.tags || []).join(", "),
-      colorOptions: getProductColorOptions(product).map((color) => ({ name: color.name, hex: color.hex, hex2: color.hex2, image: color.image })),
+      colorOptions: getProductColorOptions(product).map((color) => ({
+        name: color.name,
+        hex: color.hex,
+        hex2: color.hex2,
+        image: color.image,
+        price: color.price !== undefined ? String(color.price) : "",
+      })),
       optionGroups: (product.optionGroups || []).map((group) => ({
         label: group.label,
         values: group.values.map((value) => ({
@@ -226,11 +235,13 @@ export default function AdminProductsPage() {
             await uploadBytes(colorStorageRef, compressed);
             image = await getDownloadURL(colorStorageRef);
           }
+          const colorPrice = Number(draft.price);
           const color: ProductColorOption = {
             name: draft.name.trim() || draft.hex.trim(),
             hex: draft.hex.trim() || "#111111",
             ...(draft.hex2?.trim() ? { hex2: draft.hex2.trim() } : {}),
             ...(image ? { image } : {}),
+            ...(draft.price.trim() && !Number.isNaN(colorPrice) ? { price: colorPrice } : {}),
           };
           return color;
         })
@@ -514,7 +525,7 @@ export default function AdminProductsPage() {
                   <label className="block text-sm font-medium">Colors</label>
                   <button
                     type="button"
-                    onClick={() => setForm({ ...form, colorOptions: [...form.colorOptions, { name: "", hex: "#111111" }] })}
+                    onClick={() => setForm({ ...form, colorOptions: [...form.colorOptions, { name: "", hex: "#111111", price: "" }] })}
                     className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
                   >
                     <Plus size={14} /> Add color
@@ -523,6 +534,8 @@ export default function AdminProductsPage() {
                 <p className="mb-2 text-xs text-charcoal/50">
                   Add a photo per color so picking it on the product page shows the cloth in that color, not just a swatch.
                   For a combo cloth (e.g. &quot;Red &amp; Black&quot;), turn on Two-tone to show a split swatch instead of one solid color.
+                  Set a color&apos;s own price to list a variant (e.g. &quot;Gold — Lace&quot;) as its own swatch at its own
+                  price, instead of the product&apos;s base price above.
                 </p>
                 <div className="space-y-2">
                   {form.colorOptions.map((color, index) => (
@@ -564,6 +577,22 @@ export default function AdminProductsPage() {
                         placeholder="Burgundy"
                         className="min-w-[110px] flex-1 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
                       />
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <span className="text-xs text-charcoal/45">GHS</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={color.price}
+                          onChange={(event) => {
+                            const next = [...form.colorOptions];
+                            next[index] = { ...next[index], price: event.target.value };
+                            setForm({ ...form, colorOptions: next });
+                          }}
+                          placeholder="Base price"
+                          className="w-24 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
+                        />
+                      </div>
                       <label className="flex shrink-0 items-center gap-1.5 text-xs text-charcoal/60">
                         <input
                           type="checkbox"

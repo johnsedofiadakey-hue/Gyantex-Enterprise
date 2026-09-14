@@ -87,12 +87,17 @@ export function getProductColorOptions(
 
 /** A color a customer can pick, with the actual photo of the cloth in that color.
  * `hex2` is optional — when set, the swatch renders as a split circle (e.g. a
- * "Red & Black" combo cloth) instead of a single solid color. */
+ * "Red & Black" combo cloth) instead of a single solid color. `price` is
+ * optional — when set, picking this swatch charges its own price instead of
+ * the product's base price, e.g. listing "Red" (the base cloth) alongside
+ * "Gold — Lace" as its own swatch at its own higher price, each with its own
+ * photo, rather than needing a separate product or a second Fabric picker. */
 export interface ProductColorOption {
   name: string;
   hex: string;
   hex2?: string;
   image?: string;
+  price?: number;
 }
 
 export interface CatalogProduct {
@@ -435,8 +440,16 @@ export function hasPricedOptionValue(optionGroups: ProductOptionGroup[] | undefi
   return !!optionGroups?.some((group) => group.values.some((value) => getOptionValuePrice(value) !== undefined));
 }
 
-export function isQuoteProduct(product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups">) {
-  if (hasPricedOptionValue(product.optionGroups)) return false;
+/** True if any color/variant swatch on this product carries its own price —
+ * e.g. a "Gold — Lace" swatch priced separately from the base cloth colors. */
+export function hasPricedColorOption(colorOptions: ProductColorOption[] | undefined): boolean {
+  return !!colorOptions?.some((color) => color.price !== undefined);
+}
+
+export function isQuoteProduct(
+  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions">
+) {
+  if (hasPricedOptionValue(product.optionGroups) || hasPricedColorOption(product.colorOptions)) return false;
   return product.priceMode === "quote" || product.price <= 0;
 }
 
@@ -446,13 +459,18 @@ export function isQuoteProduct(product: Pick<CatalogProduct, "price" | "priceMod
  * checkout. Keep unpriced/custom work out of that surface rather than making
  * customers decipher a second ordering model.
  */
-export function isMarketplaceProduct(product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups">) {
+export function isMarketplaceProduct(
+  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions">
+) {
   return !isQuoteProduct(product);
 }
 
-/** Lowest priced value across a product's option groups, or null if none
- * carry a price — used to show "From GHS X" when there's no base price. */
-function getLowestOptionPrice(optionGroups: ProductOptionGroup[] | undefined): number | null {
+/** Lowest priced value across a product's option groups and color swatches,
+ * or null if none carry a price — used to show "From GHS X" when there's no base price. */
+function getLowestOptionPrice(
+  optionGroups: ProductOptionGroup[] | undefined,
+  colorOptions: ProductColorOption[] | undefined
+): number | null {
   let lowest: number | null = null;
   for (const group of optionGroups || []) {
     for (const value of group.values) {
@@ -460,16 +478,19 @@ function getLowestOptionPrice(optionGroups: ProductOptionGroup[] | undefined): n
       if (price !== undefined && (lowest === null || price < lowest)) lowest = price;
     }
   }
+  for (const color of colorOptions || []) {
+    if (color.price !== undefined && (lowest === null || color.price < lowest)) lowest = color.price;
+  }
   return lowest;
 }
 
 export function getPriceLabel(
-  product: Pick<CatalogProduct, "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups">
+  product: Pick<CatalogProduct, "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups" | "colorOptions">
 ) {
   if (isQuoteProduct(product)) return product.startingPriceLabel || "Price not set yet";
   const unitSuffix = product.unit ? ` / ${product.unit}` : "";
   if (product.price > 0) return `GHS ${product.price.toFixed(2)}${unitSuffix}`;
-  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups);
+  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups, product.colorOptions);
   return lowestOptionPrice !== null
     ? `From GHS ${lowestOptionPrice.toFixed(2)}${unitSuffix}`
     : product.startingPriceLabel || "Price not set yet";

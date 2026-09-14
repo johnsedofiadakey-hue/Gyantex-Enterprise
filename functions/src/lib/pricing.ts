@@ -11,6 +11,16 @@ export interface ProductOptionGroup {
   values: ProductOptionValue[];
 }
 
+/** A color/variant swatch — kept in sync with src/lib/catalog.ts's
+ * ProductColorOption. `price`, when set, is what picking this swatch charges
+ * instead of the product's base price (e.g. a "Gold — Lace" swatch priced
+ * separately from the base cloth colors). hex/hex2/image are display-only,
+ * never read here. */
+export interface ProductColorOption {
+  name: string;
+  price?: number;
+}
+
 export interface CartItemInput {
   productId: string;
   name?: string;
@@ -33,6 +43,7 @@ export interface ProductPriceData {
   stockUnits?: number;
   reservedUnits?: number;
   optionGroups?: ProductOptionGroup[];
+  colorOptions?: ProductColorOption[];
 }
 
 function optionValueLabel(value: ProductOptionValue): string {
@@ -66,6 +77,19 @@ function priceFromSelections(product: ProductPriceData, selections?: Record<stri
   }
 
   return matched ? total : null;
+}
+
+/**
+ * Looks up the price attached to whichever color/variant swatch the customer
+ * selected (e.g. "Gold — Lace" → GHS 450), matched by name against the
+ * product's own colorOptions — the client's color label is never trusted as
+ * a price itself, only used to look one up. Returns null if the selected
+ * color (or no color at all) carries no price of its own.
+ */
+function priceFromColor(product: ProductPriceData, color?: string): number | null {
+  if (!product.colorOptions?.length || !color) return null;
+  const match = product.colorOptions.find((c) => c.name === color);
+  return match?.price ?? null;
 }
 
 export const DELIVERY_FEES: Record<string, number> = {
@@ -136,8 +160,13 @@ function hasPricedOptionValue(optionGroups?: ProductOptionGroup[]): boolean {
   return !!optionGroups?.some((group) => group.values.some((value) => optionValuePrice(value) !== undefined));
 }
 
+/** Mirrors src/lib/catalog.ts's hasPricedColorOption. */
+function hasPricedColorOption(colorOptions?: ProductColorOption[]): boolean {
+  return !!colorOptions?.some((color) => color.price !== undefined);
+}
+
 export function isQuoteProduct(product: ProductPriceData): boolean {
-  if (hasPricedOptionValue(product.optionGroups)) return false;
+  if (hasPricedOptionValue(product.optionGroups) || hasPricedColorOption(product.colorOptions)) return false;
   return product.priceMode === 'quote' || (product.price || 0) <= 0;
 }
 
@@ -146,22 +175,25 @@ export function shouldTrackInventory(product: ProductPriceData): boolean {
 }
 
 /**
- * Price per unit for a single item, given its purchase type and whichever
- * priced option values it selected (e.g. cloth length). If any selected
- * option carries its own price, that replaces the product's base price.
- * Otherwise the base price is used — except when the product has NO base
- * price and relies entirely on option pricing (isQuoteProduct already
- * returned false for it on that basis): a missing/unmatched selection there
- * must reject rather than silently fall back to product.price=0, which
- * would let a cart item skip payment entirely. Half piece = half the result.
+ * Price per unit for a single item, given its purchase type, whichever color
+ * it selected, and whichever priced option values it selected (e.g. cloth
+ * length). A priced color (e.g. "Gold — Lace") wins first — it represents
+ * the most specific "which physical item" choice — then a priced option
+ * value, then the product's base price. Otherwise the base price is used —
+ * except when the product has NO base price and relies entirely on
+ * color/option pricing (isQuoteProduct already returned false for it on that
+ * basis): a missing/unmatched selection there must reject rather than
+ * silently fall back to product.price=0, which would let a cart item skip
+ * payment entirely. Half piece = half the result.
  */
 export function computeItemUnitPrice(
   product: ProductPriceData,
   purchaseType: PurchaseType,
-  selections?: Record<string, string>
+  selections?: Record<string, string>,
+  color?: string
 ): number {
   if (isQuoteProduct(product)) return 0;
-  const selectedPrice = priceFromSelections(product, selections);
+  const selectedPrice = priceFromColor(product, color) ?? priceFromSelections(product, selections);
   if (selectedPrice === null && (product.price || 0) <= 0) {
     throw new Error(`"${product.name || 'An item'}" needs a size/option selected before it can be priced.`);
   }
@@ -204,7 +236,7 @@ export function computeOrderTotals(
       hasQuoteItems = true;
       continue;
     }
-    subtotal += computeItemUnitPrice(product, item.purchaseType, item.selections) * item.quantity;
+    subtotal += computeItemUnitPrice(product, item.purchaseType, item.selections, item.color) * item.quantity;
   }
 
   const deliveryFee = hasQuoteItems ? 0 : computeDeliveryFee(deliveryZone, deliveryFeeMap);

@@ -387,7 +387,10 @@ function PosProductCard({
   // toggle would just duplicate it with a forced 50% split.
   const canSplit = !hasPricedOptionValue(product.optionGroups);
 
-  const unitPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions) ?? product.price;
+  // A priced color swatch wins first, then a priced option value, then the
+  // base price — mirrors functions/src/lib/pricing.ts's computeItemUnitPrice,
+  // since recordPosSale re-derives this price server-side independently.
+  const unitPrice = colorOptions[selectedColor]?.price ?? getSelectedOptionsPrice(product.optionGroups, selectedOptions) ?? product.price;
   const finalUnitPrice = purchaseType === "half" ? unitPrice / 2 : unitPrice;
 
   const handleClick = () => {
@@ -446,7 +449,8 @@ function PosProductCard({
                     className={`h-8 w-8 rounded-full border-2 p-0.5 transition ${
                       selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
                     }`}
-                    aria-label={`Select ${color.name}`}
+                    aria-label={`Select ${color.name}${color.price !== undefined ? ` — GHS ${color.price.toFixed(2)}` : ""}`}
+                    title={color.price !== undefined ? `${color.name} — GHS ${color.price.toFixed(2)}` : color.name}
                   >
                     <span className="block h-full w-full rounded-full border border-charcoal/10" style={getSwatchStyle(color)} />
                   </button>
