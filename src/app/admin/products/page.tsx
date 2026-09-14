@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   addDoc,
   collection,
@@ -509,7 +510,7 @@ export default function AdminProductsPage() {
                 <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                   <label className="block text-sm font-medium">Variants</label>
                   <div className="flex items-center gap-3">
-                    {pricingPresets.length > 0 && (
+                    {pricingPresets.length > 0 ? (
                       <select
                         value=""
                         onChange={(event) => {
@@ -522,6 +523,10 @@ export default function AdminProductsPage() {
                           <option key={preset.id} value={preset.id}>{preset.name}</option>
                         ))}
                       </select>
+                    ) : (
+                      <Link href="/admin/pricing-presets" className="text-xs font-medium text-charcoal/50 hover:text-olive hover:underline">
+                        No pricing presets yet — create one
+                      </Link>
                     )}
                     <button
                       type="button"
