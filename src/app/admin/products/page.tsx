@@ -16,16 +16,15 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage
 import { Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
-  getOptionValueLabel,
-  getOptionValuePrice,
+  deriveVariants,
   getPriceLabel,
-  getProductColorOptions,
   getSwatchStyle,
   isMarketplaceProduct,
   normalizeCategory,
   type Category,
   type ProductColorOption,
   type ProductOptionGroup,
+  type ProductVariant,
 } from "@/lib/catalog";
 import { db, storage } from "@/lib/firebase";
 import { useToastStore } from "@/store/useToastStore";
@@ -42,6 +41,7 @@ interface Product {
   unit?: string;
   category?: string;
   imageUrl?: string;
+  variants?: ProductVariant[];
   colors: string[];
   colorNames?: string[];
   colorOptions?: ProductColorOption[];
@@ -56,40 +56,28 @@ interface Product {
   featured?: boolean;
 }
 
-/** Editable form shape for one value within an option group — `price` is a
- * plain string while typing; blank means "use the product's base price".
- * No photo here — see ProductColorOption for a value that needs its own
- * picture (a variant like "Gold — Lace" is listed as its own color instead). */
-interface OptionValueDraft {
-  label: string;
-  price: string;
-}
-
-/** Editable form shape for an option group (e.g. "Cloth Length"). */
-interface OptionGroupDraft {
-  label: string;
-  values: OptionValueDraft[];
-}
-
-/** Editable form shape for a color — `image` holds an already-uploaded URL;
- * a newly-chosen photo lives separately in `colorImageFiles` until save.
- * `hex2` is optional — set it for a combo cloth (e.g. "Red & Black") to show
- * a split swatch instead of one solid color. `price` is a plain string while
- * typing; blank means "use the product's base price" — set it to list a
- * variant like "Gold — Lace" as its own swatch at its own price. */
-interface ColorDraft {
-  name: string;
+/** Editable form shape for one row in the Variants table — one row per thing
+ * actually sold: an optional color (`hex`/`hex2` — two-tone works exactly as
+ * it always has), an optional size/length label, an optional price (blank =
+ * the product's base price), and an optional photo. `image` holds an
+ * already-uploaded URL; `pendingFile` holds a newly-chosen photo not yet
+ * uploaded, kept directly on the row (not a separate index-keyed map) so it
+ * always travels with the right row through adding/removing/reordering. */
+interface VariantDraft {
+  color: string;
   hex: string;
   hex2?: string;
-  image?: string;
+  size: string;
   price: string;
+  image?: string;
+  pendingFile?: File;
 }
 
-const DEFAULT_COLOR_DRAFTS: ColorDraft[] = [
-  { name: "Black", hex: "#111111", price: "" },
-  { name: "White", hex: "#ffffff", price: "" },
-  { name: "Burgundy", hex: "#7b1e2b", price: "" },
-  { name: "Gold", hex: "#c8b27a", price: "" },
+const DEFAULT_VARIANT_DRAFTS: VariantDraft[] = [
+  { color: "Black", hex: "#111111", size: "", price: "" },
+  { color: "White", hex: "#ffffff", size: "", price: "" },
+  { color: "Burgundy", hex: "#7b1e2b", size: "", price: "" },
+  { color: "Gold", hex: "#c8b27a", size: "", price: "" },
 ];
 
 const EMPTY_FORM = {
@@ -98,8 +86,7 @@ const EMPTY_FORM = {
   category: "Funeral Cloth",
   description: "",
   tags: "",
-  colorOptions: DEFAULT_COLOR_DRAFTS,
-  optionGroups: [] as OptionGroupDraft[],
+  variants: DEFAULT_VARIANT_DRAFTS,
   trackInventory: false,
   stockUnits: "",
   featured: false,
@@ -114,15 +101,8 @@ export default function AdminProductsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [colorImageFiles, setColorImageFiles] = useState<Record<number, File>>({});
   const [saving, setSaving] = useState(false);
   const toast = useToastStore((state) => state.show);
-
-  // Warns when both are priced on the same draft — see the note above the
-  // Customer choices section for why that combination doesn't have a single
-  // correct price and should be flattened into colors instead.
-  const hasColorPricing = form.colorOptions.some((color) => color.price.trim());
-  const hasOptionPricing = form.optionGroups.some((group) => group.values.some((value) => value.price.trim()));
 
   useEffect(() => {
     const productQuery = query(collection(db, "products"), orderBy("createdAt", "desc"));
@@ -160,7 +140,6 @@ export default function AdminProductsPage() {
     setEditing(null);
     setForm(EMPTY_FORM);
     setImageFile(null);
-    setColorImageFiles({});
     setShowForm(true);
   };
 
@@ -172,26 +151,23 @@ export default function AdminProductsPage() {
       category: normalizeCategory(product.category || "Funeral Cloth"),
       description: product.description || "",
       tags: (product.tags || []).join(", "),
-      colorOptions: getProductColorOptions(product).map((color) => ({
-        name: color.name,
-        hex: color.hex,
-        hex2: color.hex2,
-        image: color.image,
-        price: color.price !== undefined ? String(color.price) : "",
-      })),
-      optionGroups: (product.optionGroups || []).map((group) => ({
-        label: group.label,
-        values: group.values.map((value) => ({
-          label: getOptionValueLabel(value),
-          price: getOptionValuePrice(value) !== undefined ? String(getOptionValuePrice(value)) : "",
-        })),
+      // deriveVariants returns product.variants as-is when set, or flattens
+      // this product's legacy Colors/Customer-choices data into rows if it
+      // hasn't been re-saved through this table yet — either way nothing
+      // already configured is lost.
+      variants: deriveVariants(product).map((variant) => ({
+        color: variant.color || "",
+        hex: variant.hex || "#111111",
+        hex2: variant.hex2,
+        size: variant.size || "",
+        image: variant.image,
+        price: variant.price !== undefined ? String(variant.price) : "",
       })),
       trackInventory: product.trackInventory !== false && (product.price || 0) > 0,
       stockUnits: String(product.stockUnits ?? ""),
       featured: product.featured || false,
     });
     setImageFile(null);
-    setColorImageFiles({});
     setShowForm(true);
   };
 
@@ -221,50 +197,36 @@ export default function AdminProductsPage() {
 
     setSaving(true);
     try {
-      // Compressed + uploaded in parallel — each color photo is independent,
-      // so there's no reason to make one wait on the previous one finishing.
-      const colorUploads = await Promise.all(
-        form.colorOptions.map(async (draft, i) => {
-          if (!draft.name.trim() && !draft.hex.trim()) return null;
+      // Compressed + uploaded in parallel — each variant's photo is
+      // independent, so there's no reason to make one wait on another.
+      const variantUploads = await Promise.all(
+        form.variants.map(async (draft) => {
+          if (!draft.color.trim() && !draft.size.trim()) return null;
           let image = draft.image || "";
-          const pendingFile = colorImageFiles[i];
-          if (pendingFile) {
-            const compressed = await compressImageForUpload(pendingFile);
-            const colorStorageRef = ref(storage, `products/colors/${Date.now()}_${i}_${compressed.name}`);
-            await uploadBytes(colorStorageRef, compressed);
-            image = await getDownloadURL(colorStorageRef);
+          if (draft.pendingFile) {
+            const compressed = await compressImageForUpload(draft.pendingFile);
+            const variantStorageRef = ref(storage, `products/variants/${Date.now()}_${compressed.name}`);
+            await uploadBytes(variantStorageRef, compressed);
+            image = await getDownloadURL(variantStorageRef);
           }
-          const colorPrice = Number(draft.price);
-          const color: ProductColorOption = {
-            name: draft.name.trim() || draft.hex.trim(),
-            hex: draft.hex.trim() || "#111111",
-            ...(draft.hex2?.trim() ? { hex2: draft.hex2.trim() } : {}),
+          const variantPrice = Number(draft.price);
+          const variant: ProductVariant = {
+            ...(draft.color.trim() ? { color: draft.color.trim(), hex: draft.hex.trim() || "#111111" } : {}),
+            ...(draft.color.trim() && draft.hex2?.trim() ? { hex2: draft.hex2.trim() } : {}),
+            ...(draft.size.trim() ? { size: draft.size.trim() } : {}),
             ...(image ? { image } : {}),
-            ...(draft.price.trim() && !Number.isNaN(colorPrice) ? { price: colorPrice } : {}),
+            ...(draft.price.trim() && !Number.isNaN(variantPrice) ? { price: variantPrice } : {}),
           };
-          return color;
+          return variant;
         })
       );
-      const colorOptions: ProductColorOption[] = colorUploads.filter((c): c is ProductColorOption => c !== null);
-
-      const resolvedOptionGroups: ProductOptionGroup[] = form.optionGroups
-        .map((group) => ({
-          label: group.label.trim(),
-          values: group.values
-            .filter((value) => value.label.trim())
-            .map((value) => {
-              const label = value.label.trim();
-              const price = Number(value.price);
-              return value.price.trim() && !Number.isNaN(price) ? { label, price } : label;
-            }),
-        }))
-        .filter((group) => group.label && group.values.length > 0);
+      const variants: ProductVariant[] = variantUploads.filter((v): v is ProductVariant => v !== null);
 
       // The main/listing photo: a manually chosen file wins, otherwise fall
-      // back to the first color's photo (so products with color photos don't
-      // need a separate, redundant top-level upload), then whatever was
-      // already saved.
-      let imageUrl = colorOptions[0]?.image || editing?.imageUrl || "";
+      // back to the first variant's photo (so products with variant photos
+      // don't need a separate, redundant top-level upload), then whatever
+      // was already saved.
+      let imageUrl = variants[0]?.image || editing?.imageUrl || "";
       if (imageFile) {
         const compressed = await compressImageForUpload(imageFile);
         const storageRef = ref(storage, `products/${Date.now()}_${compressed.name}`);
@@ -272,11 +234,11 @@ export default function AdminProductsPage() {
         imageUrl = await getDownloadURL(storageRef);
       }
 
-      // A product with no price (and no priced Customer-choices value) is
-      // hidden from the public site entirely — the storefront is a straight
-      // marketplace now, not a quote-request flow, so an unpriced item has
-      // nothing to show. Treat this as a draft: set a real price (here or
-      // per-value in Customer choices below) to make it visible and purchasable.
+      // A product with no price (and no priced variant) is hidden from the
+      // public site entirely — the storefront is a straight marketplace now,
+      // not a quote-request flow, so an unpriced item has nothing to show.
+      // Treat this as a draft: set a real price (here or per-variant below)
+      // to make it visible and purchasable.
       const price = Number(form.price) || 0;
       const isQuote = price <= 0;
       const trackInventory = !isQuote && form.trackInventory;
@@ -288,10 +250,13 @@ export default function AdminProductsPage() {
         category: form.category,
         description: form.description,
         tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-        colorOptions,
-        colors: colorOptions.map((c) => c.hex),
-        colorNames: colorOptions.map((c) => c.name),
-        optionGroups: resolvedOptionGroups,
+        variants,
+        // Cleared going forward — `variants` is the single source of truth
+        // now; this form always writes it, never the old split shape.
+        colorOptions: [],
+        colors: [],
+        colorNames: [],
+        optionGroups: [],
         trackInventory,
         stockUnits: trackInventory ? Math.max(0, Number(form.stockUnits) || 0) : null,
         featured: form.featured,
@@ -304,9 +269,15 @@ export default function AdminProductsPage() {
 
         // Clean up any photo that was on this product before but isn't
         // referenced by the version we just saved — a replaced main photo, a
-        // replaced color photo, or a color that got removed entirely.
-        const oldUrls = [editing.imageUrl, ...(editing.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
-        const newUrls = new Set([imageUrl, ...colorOptions.map((c) => c.image)].filter(Boolean) as string[]);
+        // replaced variant photo, a variant that got removed entirely, or
+        // (the first time a legacy product is edited here) an old color
+        // photo now folded into variants above.
+        const oldUrls = [
+          editing.imageUrl,
+          ...(editing.variants || []).map((v) => v.image),
+          ...(editing.colorOptions || []).map((c) => c.image),
+        ].filter(Boolean) as string[];
+        const newUrls = new Set([imageUrl, ...variants.map((v) => v.image)].filter(Boolean) as string[]);
         const orphaned = oldUrls.filter((url) => !newUrls.has(url));
         await Promise.all(orphaned.map(deleteStorageImage));
       } else {
@@ -331,7 +302,11 @@ export default function AdminProductsPage() {
     try {
       await deleteDoc(doc(db, "products", product.id));
       toast("Product deleted.", "success");
-      const urls = [product.imageUrl, ...(product.colorOptions || []).map((c) => c.image)].filter(Boolean) as string[];
+      const urls = [
+        product.imageUrl,
+        ...(product.variants || []).map((v) => v.image),
+        ...(product.colorOptions || []).map((c) => c.image),
+      ].filter(Boolean) as string[];
       await Promise.all(urls.map(deleteStorageImage));
     } catch (error) {
       console.error(error);
@@ -460,9 +435,9 @@ export default function AdminProductsPage() {
                   className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive"
                 />
                 <p className="mt-1 text-xs text-charcoal/45">
-                  Blank hides this product from the public site entirely — it stays a draft until it has a price. If
-                  Customer choices below has priced values, the one the customer picks is charged instead of this base
-                  price (and the product is already visible).
+                  Blank hides this product from the public site entirely — it stays a draft until it has a price. If any
+                  Variant below has its own price, the one the customer picks is charged instead of this base price (and
+                  the product is already visible).
                 </p>
               </div>
 
@@ -494,270 +469,144 @@ export default function AdminProductsPage() {
 
               <div className="md:col-span-2">
                 <div className="mb-1.5 flex items-center justify-between">
-                  <label className="block text-sm font-medium">Colors</label>
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, colorOptions: [...form.colorOptions, { name: "", hex: "#111111", price: "" }] })}
-                    className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
-                  >
-                    <Plus size={14} /> Add color
-                  </button>
-                </div>
-                <p className="mb-2 text-xs text-charcoal/50">
-                  Add a photo per color so picking it on the product page shows the cloth in that color, not just a swatch.
-                  For a combo cloth (e.g. &quot;Red &amp; Black&quot;), turn on Two-tone to show a split swatch instead of one solid color.
-                  Set a color&apos;s own price to list a variant (e.g. &quot;Gold — Lace&quot;) as its own swatch at its own
-                  price, instead of the product&apos;s base price above.
-                </p>
-                <div className="space-y-2">
-                  {form.colorOptions.map((color, index) => (
-                    <div key={index} className="flex flex-wrap items-center gap-2 rounded-md border border-charcoal/15 p-2.5">
-                      <span
-                        className="h-9 w-9 shrink-0 rounded-full border border-charcoal/10"
-                        style={getSwatchStyle(color)}
-                        aria-hidden="true"
-                        title="Preview"
-                      />
-                      <input
-                        type="color"
-                        value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.hex) ? color.hex : "#111111"}
-                        onChange={(event) => {
-                          const next = [...form.colorOptions];
-                          next[index] = { ...next[index], hex: event.target.value };
-                          setForm({ ...form, colorOptions: next });
-                        }}
-                        className="h-9 w-9 shrink-0 cursor-pointer rounded border border-charcoal/20 p-0.5"
-                        aria-label="Pick color"
-                      />
-                      <input
-                        value={color.hex}
-                        onChange={(event) => {
-                          const next = [...form.colorOptions];
-                          next[index] = { ...next[index], hex: event.target.value };
-                          setForm({ ...form, colorOptions: next });
-                        }}
-                        placeholder="#7b1e2b"
-                        className="w-24 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
-                      />
-                      <input
-                        value={color.name}
-                        onChange={(event) => {
-                          const next = [...form.colorOptions];
-                          next[index] = { ...next[index], name: event.target.value };
-                          setForm({ ...form, colorOptions: next });
-                        }}
-                        placeholder="Burgundy"
-                        className="min-w-[110px] flex-1 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
-                      />
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <span className="text-xs text-charcoal/45">GHS</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={color.price}
-                          onChange={(event) => {
-                            const next = [...form.colorOptions];
-                            next[index] = { ...next[index], price: event.target.value };
-                            setForm({ ...form, colorOptions: next });
-                          }}
-                          placeholder="Base price"
-                          className="w-24 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
-                        />
-                      </div>
-                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-charcoal/60">
-                        <input
-                          type="checkbox"
-                          checked={color.hex2 !== undefined}
-                          onChange={(event) => {
-                            const next = [...form.colorOptions];
-                            next[index] = { ...next[index], hex2: event.target.checked ? "#ffffff" : undefined };
-                            setForm({ ...form, colorOptions: next });
-                          }}
-                          className="accent-olive"
-                        />
-                        Two-tone
-                      </label>
-                      {color.hex2 !== undefined && (
-                        <input
-                          type="color"
-                          value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.hex2) ? color.hex2 : "#ffffff"}
-                          onChange={(event) => {
-                            const next = [...form.colorOptions];
-                            next[index] = { ...next[index], hex2: event.target.value };
-                            setForm({ ...form, colorOptions: next });
-                          }}
-                          className="h-9 w-9 shrink-0 cursor-pointer rounded border border-charcoal/20 p-0.5"
-                          aria-label="Pick second color"
-                          title="Second color"
-                        />
-                      )}
-                      <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-dashed border-charcoal/30 px-2.5 py-2 text-xs hover:border-olive/50">
-                        {colorImageFiles[index] ? (
-                          <span className="max-w-[90px] truncate">{colorImageFiles[index].name}</span>
-                        ) : color.image ? (
-                          <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded">
-                            <ProductImage src={color.image} alt={color.name || "Color photo"} sizes="28px" className="object-cover" />
-                          </div>
-                        ) : (
-                          <>
-                            <Upload size={13} className="text-charcoal/50" />
-                            <span className="text-charcoal/60">Photo</span>
-                          </>
-                        )}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (file) setColorImageFiles((prev) => ({ ...prev, [index]: file }));
-                          }}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setForm({ ...form, colorOptions: form.colorOptions.filter((_, i) => i !== index) });
-                          setColorImageFiles((prev) => {
-                            const next = { ...prev };
-                            delete next[index];
-                            return next;
-                          });
-                        }}
-                        className="shrink-0 rounded-md border border-charcoal/15 px-2 py-2 text-charcoal/50 hover:border-terracotta hover:text-terracotta"
-                        aria-label="Remove color"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="md:col-span-2">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label className="block text-sm font-medium">Customer choices (size, cut, etc.)</label>
+                  <label className="block text-sm font-medium">Variants</label>
                   <button
                     type="button"
                     onClick={() =>
-                      setForm({
-                        ...form,
-                        optionGroups: [...form.optionGroups, { label: "", values: [{ label: "", price: "" }] }],
-                      })
+                      setForm({ ...form, variants: [...form.variants, { color: "", hex: "#111111", size: "", price: "" }] })
                     }
                     className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
                   >
-                    <Plus size={14} /> Add choice group
+                    <Plus size={14} /> Add variant
                   </button>
                 </div>
                 <p className="mb-2 text-xs text-charcoal/50">
-                  E.g. a &quot;Cloth Length&quot; group with 6 Yards, 12 Yards, and Full Piece — each can have its own price.
-                  Leave a value&apos;s price blank to keep it at the product&apos;s base price above. For a variant that
-                  needs its own photo (e.g. &quot;Gold — Lace&quot;), add it as its own color above instead.
+                  One row per thing you actually sell — a color, a size (e.g. &quot;12 Yards&quot;), or both together as
+                  one row (e.g. &quot;Gold — Lace, 12 Yards&quot;) at its own price and photo. Leave price blank to use the
+                  product&apos;s base price above. Turn on Two-tone for a combo cloth (e.g. &quot;Red &amp; Black&quot;).
                 </p>
-                {hasColorPricing && hasOptionPricing && (
-                  <p className="mb-3 rounded-md bg-terracotta/10 px-3 py-2 text-xs leading-5 text-terracotta">
-                    This product has priced colors <span className="font-medium">and</span> priced Customer choices — when
-                    a customer picks both, only the color&apos;s price is charged and the Customer-choices price is
-                    ignored. If you need a different price per length for a specific variant (e.g. &quot;Gold Lace — 12
-                    Yards&quot;), list each combination as its own color instead, and remove the prices here.
-                  </p>
-                )}
-                {form.optionGroups.length === 0 ? (
+                {form.variants.length === 0 ? (
                   <p className="text-xs text-charcoal/50">
-                    None yet — add one if customers should pick a size, cloth length, or garment type before ordering.
+                    None yet — add one if customers should pick a color, size, or variant before ordering.
                   </p>
                 ) : (
-                  <div className="space-y-4">
-                    {form.optionGroups.map((group, groupIndex) => (
-                      <div key={groupIndex} className="rounded-md border border-charcoal/15 p-3">
-                        <div className="flex gap-2">
+                  <div className="space-y-2">
+                    {form.variants.map((variant, index) => (
+                      <div key={index} className="flex flex-wrap items-center gap-2 rounded-md border border-charcoal/15 p-2.5">
+                        <span
+                          className="h-9 w-9 shrink-0 rounded-full border border-charcoal/10"
+                          style={getSwatchStyle(variant)}
+                          aria-hidden="true"
+                          title="Preview"
+                        />
+                        <input
+                          type="color"
+                          value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(variant.hex) ? variant.hex : "#111111"}
+                          onChange={(event) => {
+                            const next = [...form.variants];
+                            next[index] = { ...next[index], hex: event.target.value };
+                            setForm({ ...form, variants: next });
+                          }}
+                          className="h-9 w-9 shrink-0 cursor-pointer rounded border border-charcoal/20 p-0.5"
+                          aria-label="Pick color"
+                        />
+                        <input
+                          value={variant.color}
+                          onChange={(event) => {
+                            const next = [...form.variants];
+                            next[index] = { ...next[index], color: event.target.value };
+                            setForm({ ...form, variants: next });
+                          }}
+                          placeholder="Color (optional)"
+                          className="min-w-[100px] flex-1 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
+                        />
+                        <input
+                          value={variant.size}
+                          onChange={(event) => {
+                            const next = [...form.variants];
+                            next[index] = { ...next[index], size: event.target.value };
+                            setForm({ ...form, variants: next });
+                          }}
+                          placeholder="Size (optional)"
+                          className="min-w-[100px] flex-1 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
+                        />
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <span className="text-xs text-charcoal/45">GHS</span>
                           <input
-                            value={group.label}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={variant.price}
                             onChange={(event) => {
-                              const next = [...form.optionGroups];
-                              next[groupIndex] = { ...next[groupIndex], label: event.target.value };
-                              setForm({ ...form, optionGroups: next });
+                              const next = [...form.variants];
+                              next[index] = { ...next[index], price: event.target.value };
+                              setForm({ ...form, variants: next });
                             }}
-                            placeholder="Cloth Length"
-                            className="flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm font-medium outline-none focus:border-olive"
+                            placeholder="Base price"
+                            className="w-24 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive"
                           />
-                          <button
-                            type="button"
-                            onClick={() => setForm({ ...form, optionGroups: form.optionGroups.filter((_, i) => i !== groupIndex) })}
-                            className="shrink-0 rounded-md border border-charcoal/15 px-2.5 text-charcoal/50 hover:border-terracotta hover:text-terracotta"
-                            aria-label="Remove choice group"
-                          >
-                            <X size={15} />
-                          </button>
                         </div>
-
-                        <div className="mt-2 space-y-2">
-                          {group.values.map((value, valueIndex) => (
-                            <div key={valueIndex} className="flex flex-wrap items-center gap-2">
-                              <input
-                                value={value.label}
-                                onChange={(event) => {
-                                  const next = [...form.optionGroups];
-                                  const values = [...next[groupIndex].values];
-                                  values[valueIndex] = { ...values[valueIndex], label: event.target.value };
-                                  next[groupIndex] = { ...next[groupIndex], values };
-                                  setForm({ ...form, optionGroups: next });
-                                }}
-                                placeholder="Lace"
-                                className="min-w-[90px] flex-1 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
-                              />
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs text-charcoal/45">GHS</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={value.price}
-                                  onChange={(event) => {
-                                    const next = [...form.optionGroups];
-                                    const values = [...next[groupIndex].values];
-                                    values[valueIndex] = { ...values[valueIndex], price: event.target.value };
-                                    next[groupIndex] = { ...next[groupIndex], values };
-                                    setForm({ ...form, optionGroups: next });
-                                  }}
-                                  placeholder="Base price"
-                                  className="w-28 rounded-md border border-charcoal/20 p-2.5 text-sm outline-none focus:border-olive"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = [...form.optionGroups];
-                                  next[groupIndex] = {
-                                    ...next[groupIndex],
-                                    values: next[groupIndex].values.filter((_, i) => i !== valueIndex),
-                                  };
-                                  setForm({ ...form, optionGroups: next });
-                                }}
-                                className="shrink-0 rounded-md border border-charcoal/15 px-2 py-2 text-charcoal/50 hover:border-terracotta hover:text-terracotta"
-                                aria-label="Remove value"
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = [...form.optionGroups];
-                              next[groupIndex] = {
-                                ...next[groupIndex],
-                                values: [...next[groupIndex].values, { label: "", price: "" }],
-                              };
-                              setForm({ ...form, optionGroups: next });
+                        <label className="flex shrink-0 items-center gap-1.5 text-xs text-charcoal/60">
+                          <input
+                            type="checkbox"
+                            checked={variant.hex2 !== undefined}
+                            onChange={(event) => {
+                              const next = [...form.variants];
+                              next[index] = { ...next[index], hex2: event.target.checked ? "#ffffff" : undefined };
+                              setForm({ ...form, variants: next });
                             }}
-                            className="flex items-center gap-1 text-xs font-semibold text-olive hover:underline"
-                          >
-                            <Plus size={13} /> Add value
-                          </button>
-                        </div>
+                            className="accent-olive"
+                          />
+                          Two-tone
+                        </label>
+                        {variant.hex2 !== undefined && (
+                          <input
+                            type="color"
+                            value={/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(variant.hex2) ? variant.hex2 : "#ffffff"}
+                            onChange={(event) => {
+                              const next = [...form.variants];
+                              next[index] = { ...next[index], hex2: event.target.value };
+                              setForm({ ...form, variants: next });
+                            }}
+                            className="h-9 w-9 shrink-0 cursor-pointer rounded border border-charcoal/20 p-0.5"
+                            aria-label="Pick second color"
+                            title="Second color"
+                          />
+                        )}
+                        <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-dashed border-charcoal/30 px-2.5 py-2 text-xs hover:border-olive/50">
+                          {variant.pendingFile ? (
+                            <span className="max-w-[90px] truncate">{variant.pendingFile.name}</span>
+                          ) : variant.image ? (
+                            <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded">
+                              <ProductImage src={variant.image} alt={variant.color || variant.size || "Variant photo"} sizes="28px" className="object-cover" />
+                            </div>
+                          ) : (
+                            <>
+                              <Upload size={13} className="text-charcoal/50" />
+                              <span className="text-charcoal/60">Photo</span>
+                            </>
+                          )}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) return;
+                              const next = [...form.variants];
+                              next[index] = { ...next[index], pendingFile: file };
+                              setForm({ ...form, variants: next });
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, variants: form.variants.filter((_, i) => i !== index) })}
+                          className="shrink-0 rounded-md border border-charcoal/15 px-2 py-2 text-charcoal/50 hover:border-terracotta hover:text-terracotta"
+                          aria-label="Remove variant"
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -793,7 +642,7 @@ export default function AdminProductsPage() {
                 )}
               </div>
 
-              {form.colorOptions.length === 0 ? (
+              {form.variants.length === 0 ? (
                 <div className="md:col-span-2">
                   <label className="mb-1.5 block text-sm font-medium">Photo</label>
                   <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
@@ -806,7 +655,7 @@ export default function AdminProductsPage() {
                 </div>
               ) : (
                 <p className="md:col-span-2 text-xs text-charcoal/50">
-                  This product&apos;s listing photo is its first color&apos;s photo above — no separate upload needed.
+                  This product&apos;s listing photo is its first variant&apos;s photo above — no separate upload needed.
                 </p>
               )}
             </div>

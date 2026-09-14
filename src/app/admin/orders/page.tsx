@@ -15,7 +15,8 @@ interface OrderItem {
   priceMode?: "fixed" | "quote";
   minimumOrder?: string;
   category?: string;
-  color: string;
+  color?: string;
+  size?: string;
   image?: string;
   selections?: Record<string, string>;
   purchaseType: "full" | "half";
@@ -232,7 +233,7 @@ export default function AdminOrdersPage() {
                                   </div>
                                   <div className="flex flex-1 items-center justify-between gap-4 text-sm">
                                     <span>
-                                      {item.quantity}x {item.name} ({item.category || item.color || "custom"}, {item.purchaseType === "full" ? "Full" : "Half"})
+                                      {item.quantity}x {item.name} ({[item.color, item.size].filter(Boolean).join(" · ") || item.category || "custom"}, {item.purchaseType === "full" ? "Full" : "Half"})
                                       {selectionText && <span className="block text-xs text-charcoal/50">{selectionText}</span>}
                                     </span>
                                     <span className="shrink-0 font-medium">{priceLabel(item)}</span>

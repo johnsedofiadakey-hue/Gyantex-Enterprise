@@ -278,7 +278,7 @@ export default function CheckoutPage() {
                   <div className="font-medium leading-tight">{item.name}</div>
                   <div className="mt-1 text-xs text-charcoal/50">{item.category}</div>
                   <div className="mt-1 text-xs text-charcoal/60">
-                    {[item.color, ...(item.selections ? Object.entries(item.selections).map(([label, value]) => `${label}: ${value}`) : [])]
+                    {[item.color, item.size, ...(item.selections ? Object.entries(item.selections).map(([label, value]) => `${label}: ${value}`) : [])]
                       .filter(Boolean)
                       .join(" · ")}
                   </div>

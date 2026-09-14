@@ -11,7 +11,10 @@ export interface CartItem {
   minimumOrder?: string;
   category?: string;
   image: string;
-  color: string;
+  /** The selected variant's color name, if it has one — a size-only variant leaves this unset. */
+  color?: string;
+  /** The selected variant's size/length label, e.g. "12 Yards" — see ProductVariant. */
+  size?: string;
   /** Chosen value per option group, e.g. { "Cloth Length": "12 Yards", "Size": "Large" }. */
   selections?: Record<string, string>;
   purchaseType: 'full' | 'half';
@@ -41,6 +44,7 @@ export const useCartStore = create<CartStore>()(
           (i) =>
             i.productId === item.productId &&
             i.color === item.color &&
+            i.size === item.size &&
             i.purchaseType === item.purchaseType &&
             sameSelections(i.selections, item.selections)
         );

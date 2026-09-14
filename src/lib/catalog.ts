@@ -69,13 +69,107 @@ export function getProductColorOptions(
  * optional — when set, picking this swatch charges its own price instead of
  * the product's base price, e.g. listing "Red" (the base cloth) alongside
  * "Gold — Lace" as its own swatch at its own higher price, each with its own
- * photo, rather than needing a separate product or a second Fabric picker. */
+ * photo, rather than needing a separate product or a second Fabric picker.
+ * @deprecated superseded by ProductVariant — kept only so deriveVariants can
+ * read a product saved before that change. Never written by new saves. */
 export interface ProductColorOption {
   name: string;
   hex: string;
   hex2?: string;
   image?: string;
   price?: number;
+}
+
+/**
+ * One sellable version of a product — the single, unified replacement for
+ * the earlier split between "Colors" and "Customer choices". Each row is a
+ * complete choice a customer can pick in one step: an optional color
+ * (`hex`/`hex2` — the same two-tone split-swatch support colors always had),
+ * an optional size/length label (free text, e.g. "12 Yards"), an optional
+ * photo, and an optional price (blank = the product's base price). A row can
+ * set just a color, just a size, both together (e.g. "Gold — Lace, 12
+ * Yards" as one priced, photographed row), or a product can have none at all
+ * (a plain single-priced item, no picker shown).
+ */
+export interface ProductVariant {
+  color?: string;
+  hex?: string;
+  hex2?: string;
+  size?: string;
+  image?: string;
+  price?: number;
+}
+
+/** A human label for a variant row, combining whichever of color/size are set. */
+export function getVariantLabel(variant: Pick<ProductVariant, "color" | "size">): string {
+  return [variant.color, variant.size].filter(Boolean).join(" — ") || "Option";
+}
+
+/** Swatch style for a variant row, or undefined if it has no color at all
+ * (a size-only row, e.g. plain "12 Yards" with no colorway). */
+export function getVariantSwatchStyle(
+  variant: Pick<ProductVariant, "hex" | "hex2">
+): { backgroundColor: string } | { background: string } | undefined {
+  if (!variant.hex) return undefined;
+  return getSwatchStyle({ hex: variant.hex, hex2: variant.hex2 });
+}
+
+/** True if any variant row carries its own price — such a product is
+ * sellable through that selection alone, even with no base price. */
+export function hasPricedVariant(variants: ProductVariant[] | undefined): boolean {
+  return !!variants?.some((variant) => variant.price !== undefined);
+}
+
+/**
+ * Which variant row should be selected by default. Picking index 0
+ * unconditionally can default to a misleading "GHS 0.00" on a product with
+ * no base price of its own that relies entirely on ONE specific variant's
+ * price (e.g. a legacy product, derived from separate Colors + Customer-
+ * choices, where the colors never carried their own price and only a size
+ * row did) — if the first row happens to be an unpriced color, there'd be no
+ * price to show until the customer picks something else. Defaulting to the
+ * first row that does carry a price avoids that; when nothing does (the
+ * common case — the base price above covers every row), index 0 is fine.
+ */
+export function getDefaultVariantIndex(variants: ProductVariant[] | undefined): number {
+  if (!variants?.length) return 0;
+  const pricedIndex = variants.findIndex((variant) => variant.price !== undefined);
+  return pricedIndex >= 0 ? pricedIndex : 0;
+}
+
+/**
+ * Flattens a product's variants for display/editing. Returns `product.variants`
+ * as-is when set (the normal, current-shape case); otherwise derives rows
+ * from whatever legacy Colors/Customer-choices data the product still has,
+ * so nothing already saved is lost or hidden just because it hasn't been
+ * re-saved through the new single-table admin form yet. One row per legacy
+ * color (carrying its own price/photo), plus one size-only row per legacy
+ * priced option value — never attempts to cross-multiply the two, since
+ * that combination never had a single well-defined price to begin with.
+ */
+export function deriveVariants(
+  product: Pick<CatalogProduct, "variants" | "colorOptions" | "colors" | "colorNames" | "optionGroups">
+): ProductVariant[] {
+  if (product.variants?.length) return product.variants;
+
+  const variants: ProductVariant[] = getProductColorOptions(product).map((color) => ({
+    color: color.name,
+    hex: color.hex,
+    hex2: color.hex2,
+    image: color.image,
+    price: color.price,
+  }));
+
+  for (const group of product.optionGroups || []) {
+    for (const value of group.values) {
+      const price = getOptionValuePrice(value);
+      if (price !== undefined) {
+        variants.push({ size: getOptionValueLabel(value), price });
+      }
+    }
+  }
+
+  return variants;
 }
 
 export interface CatalogProduct {
@@ -87,9 +181,14 @@ export interface CatalogProduct {
   unit?: string;
   imageUrl: string;
   gallery?: string[];
+  variants?: ProductVariant[];
+  /** @deprecated superseded by `variants` — read only by deriveVariants. */
   colors: string[];
+  /** @deprecated superseded by `variants` — read only by deriveVariants. */
   colorNames?: string[];
+  /** @deprecated superseded by `variants` — read only by deriveVariants. */
   colorOptions?: ProductColorOption[];
+  /** @deprecated superseded by `variants` — read only by deriveVariants. */
   optionGroups?: ProductOptionGroup[];
   badge?: string;
   featured?: boolean;
@@ -425,9 +524,15 @@ export function hasPricedColorOption(colorOptions: ProductColorOption[] | undefi
 }
 
 export function isQuoteProduct(
-  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions">
+  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions" | "variants">
 ) {
-  if (hasPricedOptionValue(product.optionGroups) || hasPricedColorOption(product.colorOptions)) return false;
+  if (
+    hasPricedVariant(product.variants) ||
+    hasPricedOptionValue(product.optionGroups) ||
+    hasPricedColorOption(product.colorOptions)
+  ) {
+    return false;
+  }
   return product.priceMode === "quote" || product.price <= 0;
 }
 
@@ -438,16 +543,18 @@ export function isQuoteProduct(
  * customers decipher a second ordering model.
  */
 export function isMarketplaceProduct(
-  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions">
+  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions" | "variants">
 ) {
   return !isQuoteProduct(product);
 }
 
-/** Lowest priced value across a product's option groups and color swatches,
- * or null if none carry a price — used to show "From GHS X" when there's no base price. */
+/** Lowest priced row across a product's variants (and any legacy option
+ * groups/colors not yet migrated), or null if none carry a price — used to
+ * show "From GHS X" when there's no base price. */
 function getLowestOptionPrice(
   optionGroups: ProductOptionGroup[] | undefined,
-  colorOptions: ProductColorOption[] | undefined
+  colorOptions: ProductColorOption[] | undefined,
+  variants: ProductVariant[] | undefined
 ): number | null {
   let lowest: number | null = null;
   for (const group of optionGroups || []) {
@@ -459,16 +566,22 @@ function getLowestOptionPrice(
   for (const color of colorOptions || []) {
     if (color.price !== undefined && (lowest === null || color.price < lowest)) lowest = color.price;
   }
+  for (const variant of variants || []) {
+    if (variant.price !== undefined && (lowest === null || variant.price < lowest)) lowest = variant.price;
+  }
   return lowest;
 }
 
 export function getPriceLabel(
-  product: Pick<CatalogProduct, "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups" | "colorOptions">
+  product: Pick<
+    CatalogProduct,
+    "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups" | "colorOptions" | "variants"
+  >
 ) {
   if (isQuoteProduct(product)) return product.startingPriceLabel || "Price not set yet";
   const unitSuffix = product.unit ? ` / ${product.unit}` : "";
   if (product.price > 0) return `GHS ${product.price.toFixed(2)}${unitSuffix}`;
-  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups, product.colorOptions);
+  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups, product.colorOptions, product.variants);
   return lowestOptionPrice !== null
     ? `From GHS ${lowestOptionPrice.toFixed(2)}${unitSuffix}`
     : product.startingPriceLabel || "Price not set yet";
@@ -476,6 +589,10 @@ export function getPriceLabel(
 
 export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct>): CatalogProduct {
   const fallback = getDefaultProduct(id);
+  const colors = data.colors?.length ? data.colors : fallback?.colors || ["#111111"];
+  const colorNames = data.colorNames || fallback?.colorNames;
+  const colorOptions = data.colorOptions?.length ? data.colorOptions : fallback?.colorOptions;
+  const optionGroups = data.optionGroups?.length ? data.optionGroups : fallback?.optionGroups;
   return {
     id,
     name: data.name || fallback?.name || "Custom Textile Order",
@@ -485,10 +602,11 @@ export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct
     unit: data.unit || fallback?.unit || "",
     imageUrl: data.imageUrl || fallback?.imageUrl || "/placeholder.svg",
     gallery: data.gallery || fallback?.gallery,
-    colors: data.colors?.length ? data.colors : fallback?.colors || ["#111111"],
-    colorNames: data.colorNames || fallback?.colorNames,
-    colorOptions: data.colorOptions?.length ? data.colorOptions : fallback?.colorOptions,
-    optionGroups: data.optionGroups?.length ? data.optionGroups : fallback?.optionGroups,
+    variants: deriveVariants({ variants: data.variants, colorOptions, colors, colorNames, optionGroups }),
+    colors,
+    colorNames,
+    colorOptions,
+    optionGroups,
     badge: data.badge || fallback?.badge,
     featured: data.featured ?? fallback?.featured ?? false,
     category: normalizeCategory(data.category || fallback?.category || "Ready Catalog"),

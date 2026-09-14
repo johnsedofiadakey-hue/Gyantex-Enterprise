@@ -198,3 +198,71 @@ test('order totals include a priced color selection', () => {
   const { subtotal } = computeOrderTotals(items, products, 'pickup');
   assert.equal(subtotal, 450 * 2);
 });
+
+// --- Unified variants (the current, single mechanism) ---
+
+test('a priced variant row (color + size together) overrides the product base price', () => {
+  const product = {
+    price: 300,
+    priceMode: 'fixed' as const,
+    variants: [
+      { color: 'Gold', size: '12 Yards', price: 450 },
+      { color: 'Gold', size: 'Full Piece', price: 600 },
+      { color: 'Red', size: 'Full Piece', price: 300 },
+    ],
+  };
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold', '12 Yards'), 450);
+  assert.equal(computeItemUnitPrice(product, 'half', undefined, 'Gold', '12 Yards'), 225);
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold', 'Full Piece'), 600);
+});
+
+test('a variant row can be color-only or size-only and still match correctly', () => {
+  const colorOnly = { price: 300, priceMode: 'fixed' as const, variants: [{ color: 'Gold', price: 350 }] };
+  assert.equal(computeItemUnitPrice(colorOnly, 'full', undefined, 'Gold'), 350);
+
+  const sizeOnly = { price: 150, priceMode: 'fixed' as const, variants: [{ size: '12 Yards', price: 280 }] };
+  assert.equal(computeItemUnitPrice(sizeOnly, 'full', undefined, undefined, '12 Yards'), 280);
+});
+
+test('a client cannot forge a lower price by sending a fabricated variant color/size pair', () => {
+  const product = {
+    price: 500,
+    priceMode: 'fixed' as const,
+    variants: [{ color: 'Gold', size: '12 Yards', price: 450 }],
+  };
+  // Right color, wrong size (and vice versa) — neither is a real row, so the base price holds.
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold', 'Full Piece'), 500);
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Fake Color', '12 Yards'), 500);
+});
+
+test('a product with no base price but a priced variant is sellable, not a quote item', () => {
+  const product = {
+    price: 0,
+    priceMode: 'quote' as const,
+    variants: [{ color: 'Gold', size: '12 Yards', price: 450 }],
+  };
+  assert.equal(isQuoteProduct(product), false);
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold', '12 Yards'), 450);
+  assert.throws(() => computeItemUnitPrice(product, 'full'));
+});
+
+test('order totals include a priced variant selection', () => {
+  const items = [{ productId: 'p1', purchaseType: 'full' as const, quantity: 2, color: 'Gold', size: '12 Yards' }];
+  const products = {
+    p1: { price: 300, priceMode: 'fixed' as const, variants: [{ color: 'Gold', size: '12 Yards', price: 450 }] },
+  };
+  const { subtotal } = computeOrderTotals(items, products, 'pickup');
+  assert.equal(subtotal, 450 * 2);
+});
+
+test('a migrated product (variants set) ignores any leftover legacy colorOptions/optionGroups data', () => {
+  const product = {
+    price: 300,
+    priceMode: 'fixed' as const,
+    variants: [{ color: 'Gold', price: 450 }],
+    // Stale data that would resolve differently under the old mechanism —
+    // must not be consulted once variants exists and has its own match.
+    colorOptions: [{ name: 'Gold', price: 999 }],
+  };
+  assert.equal(computeItemUnitPrice(product, 'full', undefined, 'Gold'), 450);
+});

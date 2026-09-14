@@ -90,7 +90,7 @@ export default function CartPage() {
                       <p className="mt-2 text-sm leading-6 text-charcoal/60">
                         {isUnavailableItem(item)
                           ? "This item is no longer available. Remove it to continue."
-                          : `${item.color} | ${item.purchaseType === "half" ? "Half" : "Full"}`}
+                          : [item.color, item.size, item.purchaseType === "half" ? "Half" : "Full"].filter(Boolean).join(" | ")}
                       </p>
                       {item.selections && Object.keys(item.selections).length > 0 && (
                         <p className="mt-1 text-xs text-charcoal/55">

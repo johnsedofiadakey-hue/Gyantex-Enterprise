@@ -20,12 +20,9 @@ import {
 } from "@/lib/config";
 import {
   getCategoryAccent,
-  getOptionValueLabel,
-  getOptionValuePrice,
-  getProductColorOptions,
-  getSwatchStyle,
-  getSelectedOptionsPrice,
-  hasPricedOptionValue,
+  getDefaultVariantIndex,
+  getVariantLabel,
+  getVariantSwatchStyle,
   type CatalogProduct,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -45,13 +42,10 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   const toast = useToastStore((state) => state.show);
 
   const [quantity, setQuantity] = useState(1);
-  const [selectedColor, setSelectedColor] = useState(0);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => getDefaultVariantIndex(initialProduct?.variants));
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() =>
-    Object.fromEntries((initialProduct?.optionGroups || []).map((group) => [group.label, getOptionValueLabel(group.values[0])]))
-  );
 
   const product = initialProduct;
   const gallery = useMemo(() => {
@@ -76,30 +70,21 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
     );
   }
 
-  // A product with its own Customer-choices (e.g. Cloth Length) already lets
-  // the owner price each option independently — showing the generic
-  // full/half toggle on top of that just duplicates it with a forced 50%
-  // split, so it only applies to products that don't define their own. A
-  // priced color (e.g. "Gold — Lace") is different: it's WHICH item, not HOW
-  // MUCH of it, so full/half stays meaningful and isn't disabled by it.
-  const canSplit = !hasPricedOptionValue(product.optionGroups);
+  const variants = product.variants || [];
+  const selectedVariant = variants[selectedVariantIndex];
+  // A variant with its own size (e.g. "12 Yards") already lets the owner
+  // price each length independently — showing the generic full/half toggle
+  // on top of that just duplicates it with a forced 50% split, so it only
+  // applies when no variant on this product uses size that way. A
+  // color-only variant is different: it's WHICH item, not HOW MUCH of it, so
+  // full/half stays meaningful and isn't disabled by it.
+  const canSplit = !variants.some((v) => v.size);
   const effectivePurchaseType = canSplit ? purchaseType : "full";
-  const colorOptions = getProductColorOptions(product);
-  const selectedColorLabel = colorOptions[selectedColor]?.name || "Custom print";
-  // A priced color swatch (e.g. "Gold — Lace") wins over a priced Customer-
-  // choices value if a product genuinely has both set, but that combination
-  // isn't really supported — the admin form warns against it, because there's
-  // no single correct price for "this color AND this length" from two
-  // independent flat lists. A product that needs both dimensions priced
-  // should list each real combination as its own color instead (e.g. "Gold
-  // Lace — 12 Yards"). This fallback order just needs to be deterministic and
-  // match functions/src/lib/pricing.ts's computeItemUnitPrice exactly, since
-  // the server re-derives this price independently.
-  const selectedColorPrice = colorOptions[selectedColor]?.price;
-  const selectedOptionsPrice = getSelectedOptionsPrice(product.optionGroups, selectedOptions);
-  const basePrice = selectedColorPrice ?? selectedOptionsPrice ?? product.price;
+  // Mirrors functions/src/lib/pricing.ts's computeItemUnitPrice exactly,
+  // since the server re-derives this price independently.
+  const basePrice = selectedVariant?.price ?? product.price;
   const unitPrice = effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
-  const currentImage = colorOptions[selectedColor]?.image || gallery[selectedImage] || product.imageUrl;
+  const currentImage = selectedVariant?.image || gallery[selectedImage] || product.imageUrl;
 
   const buildCartItem = () => ({
     id: product.id,
@@ -110,8 +95,8 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
     minimumOrder: product.minimumOrder,
     category: product.category,
     image: currentImage,
-    color: selectedColorLabel,
-    selections: selectedOptions,
+    color: selectedVariant?.color,
+    size: selectedVariant?.size,
     purchaseType: effectivePurchaseType,
     quantity,
   });
@@ -234,68 +219,54 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
               </div>
             )}
 
-            {colorOptions.length > 0 && (
+            {variants.length > 0 && (
               <div className="mt-8">
                 <div className="mb-3 flex items-center justify-between">
                   <span className="flex items-center gap-2 font-medium">
                     <Palette size={18} className="text-olive" />
-                    Color
+                    Choose an option
                   </span>
-                  <span className="text-sm text-charcoal/50">
-                    {selectedColorLabel}
-                    {selectedColorPrice !== undefined && ` — GHS ${selectedColorPrice.toFixed(2)}`}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {colorOptions.map((color, index) => (
-                    <button
-                      key={`${color.hex}-${index}`}
-                      onClick={() => setSelectedColor(index)}
-                      aria-label={`Select ${color.name}${color.price !== undefined ? ` — GHS ${color.price.toFixed(2)}` : ""}`}
-                      title={color.price !== undefined ? `${color.name} — GHS ${color.price.toFixed(2)}` : color.name}
-                      className={`h-11 w-11 rounded-full border-2 p-1 transition ${
-                        selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
-                      }`}
-                    >
-                      <span className="block h-full w-full rounded-full border border-charcoal/10" style={getSwatchStyle(color)} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {product.optionGroups?.map((group) => (
-              <div key={group.label} className="mt-8">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="font-medium">{group.label}</span>
-                  <span className="text-sm text-charcoal/50">{selectedOptions[group.label]}</span>
+                  {selectedVariant && (
+                    <span className="text-sm text-charcoal/50">
+                      {getVariantLabel(selectedVariant)}
+                      {selectedVariant.price !== undefined && ` — GHS ${selectedVariant.price.toFixed(2)}`}
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {group.values.map((value) => {
-                    const label = getOptionValueLabel(value);
-                    const price = getOptionValuePrice(value);
-                    const active = selectedOptions[group.label] === label;
+                  {variants.map((variant, index) => {
+                    const swatch = getVariantSwatchStyle(variant);
+                    const label = getVariantLabel(variant);
+                    const active = selectedVariantIndex === index;
                     return (
                       <button
-                        key={label}
-                        onClick={() => setSelectedOptions((prev) => ({ ...prev, [group.label]: label }))}
+                        key={index}
+                        onClick={() => {
+                          setSelectedVariantIndex(index);
+                          setSelectedImage(0);
+                        }}
                         aria-pressed={active}
-                        className={`min-h-[44px] rounded-xl border px-4 py-2.5 text-sm font-semibold transition ${
+                        title={variant.price !== undefined ? `${label} — GHS ${variant.price.toFixed(2)}` : label}
+                        className={`flex min-h-[44px] items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition ${
                           active ? "border-olive bg-olive text-white" : "border-charcoal/15 bg-white hover:border-olive"
                         }`}
                       >
+                        {swatch && (
+                          <span
+                            className={`h-4 w-4 shrink-0 rounded-full border ${active ? "border-white/50" : "border-charcoal/15"}`}
+                            style={swatch}
+                          />
+                        )}
                         {label}
-                        {price !== undefined && (
-                          <span className={active ? "ml-1.5 text-white/75" : "ml-1.5 text-charcoal/45"}>
-                            GHS {price.toFixed(0)}
-                          </span>
+                        {variant.price !== undefined && (
+                          <span className={active ? "text-white/75" : "text-charcoal/45"}>GHS {variant.price.toFixed(0)}</span>
                         )}
                       </button>
                     );
                   })}
                 </div>
               </div>
-            ))}
+            )}
 
             {canSplit && (
               <div className="mt-8">

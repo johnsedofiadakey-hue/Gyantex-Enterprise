@@ -7,13 +7,10 @@ import { Check, Minus, Plus, Search, ShoppingBag, Trash2 } from "lucide-react";
 import { db, functions } from "@/lib/firebase";
 import {
   type CatalogProduct,
-  getOptionValueLabel,
-  getOptionValuePrice,
+  getDefaultVariantIndex,
   getPriceLabel,
-  getProductColorOptions,
-  getSelectedOptionsPrice,
-  getSwatchStyle,
-  hasPricedOptionValue,
+  getVariantLabel,
+  getVariantSwatchStyle,
   isQuoteProduct,
   normalizeCatalogProduct,
 } from "@/lib/catalog";
@@ -33,7 +30,7 @@ interface PosCartLine {
   image?: string;
   unitPrice: number;
   color?: string;
-  selections?: Record<string, string>;
+  size?: string;
   purchaseType: "full" | "half";
   quantity: number;
 }
@@ -45,8 +42,8 @@ interface SaleReceipt {
   itemCount: number;
 }
 
-function lineKey(productId: string, color: string | undefined, selections: Record<string, string> | undefined, purchaseType: string) {
-  return [productId, color || "", JSON.stringify(selections || {}), purchaseType].join("|");
+function lineKey(productId: string, color: string | undefined, size: string | undefined, purchaseType: string) {
+  return [productId, color || "", size || "", purchaseType].join("|");
 }
 
 export default function AdminPosPage() {
@@ -102,9 +99,9 @@ export default function AdminPosPage() {
   const changeDue = paymentMethod === "cash" && amountTendered ? tendered - subtotal : null;
 
   const addLine = (line: Omit<PosCartLine, "lineId">) => {
-    const key = lineKey(line.productId, line.color, line.selections, line.purchaseType);
+    const key = lineKey(line.productId, line.color, line.size, line.purchaseType);
     setCart((prev) => {
-      const existing = prev.find((l) => lineKey(l.productId, l.color, l.selections, l.purchaseType) === key);
+      const existing = prev.find((l) => lineKey(l.productId, l.color, l.size, l.purchaseType) === key);
       if (existing) {
         return prev.map((l) => (l === existing ? { ...l, quantity: l.quantity + line.quantity } : l));
       }
@@ -156,7 +153,7 @@ export default function AdminPosPage() {
           name: line.name,
           image: line.image,
           color: line.color,
-          selections: line.selections,
+          size: line.size,
           purchaseType: line.purchaseType,
           quantity: line.quantity,
         })),
@@ -263,9 +260,7 @@ export default function AdminPosPage() {
                 <div className="flex-1">
                   <div className="text-sm font-medium">{line.name}</div>
                   <div className="text-xs text-charcoal/50">
-                    {[line.color, line.purchaseType === "half" ? "Half Piece" : null, ...Object.entries(line.selections || {}).map(([k, v]) => `${k}: ${v}`)]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {[line.color, line.size, line.purchaseType === "half" ? "Half Piece" : null].filter(Boolean).join(" · ")}
                   </div>
                   <div className="mt-1 flex items-center gap-2">
                     <button onClick={() => updateLineQty(line.lineId, -1)} className="grid h-6 w-6 place-items-center rounded border border-charcoal/20 text-charcoal/60 hover:bg-soft-grey">
@@ -370,27 +365,23 @@ function PosProductCard({
   onQuickAdd: () => void;
   onAddVariant: (line: Omit<PosCartLine, "lineId">) => void;
 }) {
-  const colorOptions = getProductColorOptions(product);
-  const hasVariants = colorOptions.length > 0 || (product.optionGroups?.length ?? 0) > 0;
+  const variants = product.variants || [];
+  const hasVariants = variants.length > 0;
   const stock = product.trackInventory === false ? null : (product.stockUnits ?? 0) - (product.reservedUnits ?? 0);
   const outOfStock = stock !== null && stock <= 0;
 
-  const [selectedColor, setSelectedColor] = useState(0);
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() =>
-    Object.fromEntries((product.optionGroups || []).map((group) => [group.label, getOptionValueLabel(group.values[0])]))
-  );
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => getDefaultVariantIndex(variants));
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [quantity, setQuantity] = useState(1);
-  // Same rule as the storefront: a product with its own Customer-choices
-  // already prices each option independently, so the generic full/half
-  // toggle would just duplicate it with a forced 50% split.
-  const canSplit = !hasPricedOptionValue(product.optionGroups);
+  const selectedVariant = variants[selectedVariantIndex];
+  // Same rule as the storefront: a variant with its own size already prices
+  // each length independently, so the generic full/half toggle would just
+  // duplicate it with a forced 50% split.
+  const canSplit = !variants.some((v) => v.size);
 
-  // A priced color swatch wins over a priced option value if a product
-  // genuinely has both — see the admin Products form's warning against
-  // combining them. Mirrors functions/src/lib/pricing.ts's
-  // computeItemUnitPrice, since recordPosSale re-derives this server-side.
-  const unitPrice = colorOptions[selectedColor]?.price ?? getSelectedOptionsPrice(product.optionGroups, selectedOptions) ?? product.price;
+  // Mirrors functions/src/lib/pricing.ts's computeItemUnitPrice, since
+  // recordPosSale re-derives this server-side.
+  const unitPrice = selectedVariant?.price ?? product.price;
   const finalUnitPrice = purchaseType === "half" ? unitPrice / 2 : unitPrice;
 
   const handleClick = () => {
@@ -406,10 +397,10 @@ function PosProductCard({
     onAddVariant({
       productId: product.id,
       name: product.name,
-      image: colorOptions[selectedColor]?.image || product.imageUrl,
+      image: selectedVariant?.image || product.imageUrl,
       unitPrice: finalUnitPrice,
-      color: colorOptions[selectedColor]?.name,
-      selections: Object.keys(selectedOptions).length ? selectedOptions : undefined,
+      color: selectedVariant?.color,
+      size: selectedVariant?.size,
       purchaseType,
       quantity,
     });
@@ -438,51 +429,39 @@ function PosProductCard({
 
       {expanded && hasVariants && (
         <div className="border-t border-soft-grey p-4">
-          {colorOptions.length > 0 && (
+          {variants.length > 0 && (
             <div className="mb-3">
-              <div className="mb-1.5 text-xs font-medium text-charcoal/60">Color</div>
-              <div className="flex flex-wrap gap-2">
-                {colorOptions.map((color, index) => (
-                  <button
-                    key={`${color.hex}-${index}`}
-                    onClick={() => setSelectedColor(index)}
-                    className={`h-8 w-8 rounded-full border-2 p-0.5 transition ${
-                      selectedColor === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
-                    }`}
-                    aria-label={`Select ${color.name}${color.price !== undefined ? ` — GHS ${color.price.toFixed(2)}` : ""}`}
-                    title={color.price !== undefined ? `${color.name} — GHS ${color.price.toFixed(2)}` : color.name}
-                  >
-                    <span className="block h-full w-full rounded-full border border-charcoal/10" style={getSwatchStyle(color)} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {product.optionGroups?.map((group) => (
-            <div key={group.label} className="mb-3">
-              <div className="mb-1.5 text-xs font-medium text-charcoal/60">{group.label}</div>
+              <div className="mb-1.5 text-xs font-medium text-charcoal/60">Choose an option</div>
               <div className="flex flex-wrap gap-1.5">
-                {group.values.map((value) => {
-                  const label = getOptionValueLabel(value);
-                  const price = getOptionValuePrice(value);
-                  const active = selectedOptions[group.label] === label;
+                {variants.map((variant, index) => {
+                  const swatch = getVariantSwatchStyle(variant);
+                  const label = getVariantLabel(variant);
+                  const active = selectedVariantIndex === index;
                   return (
                     <button
-                      key={label}
-                      onClick={() => setSelectedOptions((prev) => ({ ...prev, [group.label]: label }))}
-                      className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
+                      key={index}
+                      onClick={() => setSelectedVariantIndex(index)}
+                      className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
                         active ? "border-olive bg-olive text-white" : "border-charcoal/15 hover:border-olive"
                       }`}
+                      title={variant.price !== undefined ? `${label} — GHS ${variant.price.toFixed(2)}` : label}
                     >
+                      {swatch && (
+                        <span
+                          className={`h-3 w-3 shrink-0 rounded-full border ${active ? "border-white/50" : "border-charcoal/15"}`}
+                          style={swatch}
+                        />
+                      )}
                       {label}
-                      {price !== undefined && <span className={active ? "ml-1 text-white/75" : "ml-1 text-charcoal/45"}>GHS {price.toFixed(0)}</span>}
+                      {variant.price !== undefined && (
+                        <span className={active ? "text-white/75" : "text-charcoal/45"}>GHS {variant.price.toFixed(0)}</span>
+                      )}
                     </button>
                   );
                 })}
               </div>
             </div>
-          ))}
+          )}
 
           <div className="mb-3 flex items-center gap-4">
             {canSplit && (

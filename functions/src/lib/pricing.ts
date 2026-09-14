@@ -10,12 +10,24 @@ export interface ProductOptionGroup {
 }
 
 /** A color/variant swatch — kept in sync with src/lib/catalog.ts's
- * ProductColorOption. `price`, when set, is what picking this swatch charges
- * instead of the product's base price (e.g. a "Gold — Lace" swatch priced
- * separately from the base cloth colors). hex/hex2/image are display-only,
- * never read here. */
+ * (deprecated) ProductColorOption, read only for a product not yet
+ * re-saved through the new single-table admin form. `price`, when set, is
+ * what picking this swatch charges instead of the product's base price.
+ * hex/hex2/image are display-only, never read here. */
 export interface ProductColorOption {
   name: string;
+  price?: number;
+}
+
+/** One sellable version of a product — kept in sync with src/lib/catalog.ts's
+ * ProductVariant. `color`/`size` are matched against the cart item's own
+ * `color`/`size` (by exact string equality, both undefined counting as a
+ * match) to find the row the customer picked; `price`, when set on that row,
+ * is what gets charged instead of the product's base price. hex/hex2/image
+ * are display-only, never read here. */
+export interface ProductVariant {
+  color?: string;
+  size?: string;
   price?: number;
 }
 
@@ -27,6 +39,7 @@ export interface CartItemInput {
   minimumOrder?: string;
   category?: string;
   color?: string;
+  size?: string;
   selections?: Record<string, string>;
   image?: string;
   purchaseType: PurchaseType;
@@ -40,6 +53,7 @@ export interface ProductPriceData {
   trackInventory?: boolean;
   stockUnits?: number;
   reservedUnits?: number;
+  variants?: ProductVariant[];
   optionGroups?: ProductOptionGroup[];
   colorOptions?: ProductColorOption[];
 }
@@ -87,6 +101,20 @@ function priceFromSelections(product: ProductPriceData, selections?: Record<stri
 function priceFromColor(product: ProductPriceData, color?: string): number | null {
   if (!product.colorOptions?.length || !color) return null;
   const match = product.colorOptions.find((c) => c.name === color);
+  return match?.price ?? null;
+}
+
+/**
+ * Looks up the price on whichever variant row matches the customer's
+ * selected color and size together — the single, current mechanism (see
+ * ProductVariant). Both sides of the match normalize "" to undefined so a
+ * size-only row (no color) or color-only row (no size) matches correctly.
+ * Returns null if the product has no variants yet (not migrated from the
+ * legacy Colors/Customer-choices shape) or nothing matches.
+ */
+function priceFromVariant(product: ProductPriceData, color?: string, size?: string): number | null {
+  if (!product.variants?.length) return null;
+  const match = product.variants.find((v) => (v.color || undefined) === (color || undefined) && (v.size || undefined) === (size || undefined));
   return match?.price ?? null;
 }
 
@@ -163,8 +191,19 @@ function hasPricedColorOption(colorOptions?: ProductColorOption[]): boolean {
   return !!colorOptions?.some((color) => color.price !== undefined);
 }
 
+/** Mirrors src/lib/catalog.ts's hasPricedVariant. */
+function hasPricedVariant(variants?: ProductVariant[]): boolean {
+  return !!variants?.some((variant) => variant.price !== undefined);
+}
+
 export function isQuoteProduct(product: ProductPriceData): boolean {
-  if (hasPricedOptionValue(product.optionGroups) || hasPricedColorOption(product.colorOptions)) return false;
+  if (
+    hasPricedVariant(product.variants) ||
+    hasPricedOptionValue(product.optionGroups) ||
+    hasPricedColorOption(product.colorOptions)
+  ) {
+    return false;
+  }
   return product.priceMode === 'quote' || (product.price || 0) <= 0;
 }
 
@@ -173,29 +212,30 @@ export function shouldTrackInventory(product: ProductPriceData): boolean {
 }
 
 /**
- * Price per unit for a single item, given its purchase type, whichever color
- * it selected, and whichever priced option values it selected (e.g. cloth
- * length). A priced color (e.g. "Gold — Lace") wins over a priced option
- * value if a product genuinely has both set, but that combination isn't
- * really supported — there's no single correct price for "this color AND
- * this length" from two independent flat lists, and the admin form warns
- * against setting both (src/app/admin/products/page.tsx). A product needing
- * both dimensions priced should list each real combination as its own color
- * instead. Otherwise the base price is used — except when the product has NO
- * base price and relies entirely on color/option pricing (isQuoteProduct
- * already returned false for it on that basis): a missing/unmatched
- * selection there must reject rather than silently fall back to
- * product.price=0, which would let a cart item skip payment entirely. Half
- * piece = half the result.
+ * Price per unit for a single item, given its purchase type and whichever
+ * variant (color + size together) it selected. A matching variant row wins
+ * first — it's the current, single mechanism (src/lib/catalog.ts's
+ * ProductVariant) — falling back to the older, separate color-price and
+ * option-value-price lookups for a product not yet re-saved through the new
+ * single-table admin form. (Those two legacy paths still resolve exactly as
+ * before when both happen to be set on the same old product: color wins,
+ * documented there as an unsupported combination.) Otherwise the base price
+ * is used — except when the product has NO base price and relies entirely on
+ * variant/color/option pricing (isQuoteProduct already returned false for it
+ * on that basis): a missing/unmatched selection there must reject rather
+ * than silently fall back to product.price=0, which would let a cart item
+ * skip payment entirely. Half piece = half the result.
  */
 export function computeItemUnitPrice(
   product: ProductPriceData,
   purchaseType: PurchaseType,
   selections?: Record<string, string>,
-  color?: string
+  color?: string,
+  size?: string
 ): number {
   if (isQuoteProduct(product)) return 0;
-  const selectedPrice = priceFromColor(product, color) ?? priceFromSelections(product, selections);
+  const selectedPrice =
+    priceFromVariant(product, color, size) ?? priceFromColor(product, color) ?? priceFromSelections(product, selections);
   if (selectedPrice === null && (product.price || 0) <= 0) {
     throw new Error(`"${product.name || 'An item'}" needs a size/option selected before it can be priced.`);
   }
@@ -238,7 +278,7 @@ export function computeOrderTotals(
       hasQuoteItems = true;
       continue;
     }
-    subtotal += computeItemUnitPrice(product, item.purchaseType, item.selections, item.color) * item.quantity;
+    subtotal += computeItemUnitPrice(product, item.purchaseType, item.selections, item.color, item.size) * item.quantity;
   }
 
   const deliveryFee = hasQuoteItems ? 0 : computeDeliveryFee(deliveryZone, deliveryFeeMap);
