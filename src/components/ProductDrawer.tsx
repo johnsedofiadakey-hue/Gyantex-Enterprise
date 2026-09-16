@@ -11,6 +11,7 @@ import {
   hasTextileOptions,
   isVariantInStock,
   type CatalogProduct,
+  type TextileColorway,
   type TextileSku,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -66,6 +67,12 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
+  const [textileColorway, setTextileColorway] = useState<TextileColorway | null>(null);
+  // Jump back to the newly-picked colourway's own photo rather than leaving
+  // the customer mid-gallery on whatever they'd paged to before.
+  useEffect(() => {
+    setSelectedImage(0);
+  }, [textileColorway]);
 
   const variants = (product.variants || []).filter(isVariantInStock);
   const isTextile = hasTextileOptions(product);
@@ -82,7 +89,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const fullPiecePrice = selectedVariant?.price ?? product.price;
   const unitPrice = isTextile ? (textileSku?.piece.price || 0) : purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
 
-  const variantImage = isTextile ? textileSku?.colorway.image : selectedVariant?.image;
+  const variantImage = isTextile ? textileColorway?.image : selectedVariant?.image;
   const gallery = [variantImage, product.imageUrl, ...(product.gallery || [])].filter(
     (src, index, list): src is string => Boolean(src) && list.indexOf(src) === index
   );
@@ -204,7 +211,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
               )}
 
               {isTextile ? (
-                <TextileSelector product={product} onSkuChange={setTextileSku} />
+                <TextileSelector product={product} onSkuChange={setTextileSku} onColorwayChange={setTextileColorway} />
               ) : variants.length > 0 && (
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between">

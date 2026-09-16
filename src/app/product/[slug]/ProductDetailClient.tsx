@@ -26,6 +26,7 @@ import {
   hasTextileOptions,
   isVariantInStock,
   type CatalogProduct,
+  type TextileColorway,
   type TextileSku,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
@@ -52,6 +53,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
+  const [textileColorway, setTextileColorway] = useState<TextileColorway | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
 
   const product = initialProduct;
@@ -95,7 +97,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   // since the server re-derives this price independently.
   const basePrice = selectedVariant?.price ?? product.price;
   const unitPrice = isTextile ? (textileSku?.piece.price || 0) : effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
-  const currentImage = isTextile ? textileSku?.colorway.image || product.imageUrl : selectedVariant?.image || gallery[selectedImage] || product.imageUrl;
+  const currentImage = isTextile ? textileColorway?.image || product.imageUrl : selectedVariant?.image || gallery[selectedImage] || product.imageUrl;
 
   const buildCartItem = () => ({
     id: product.id,
@@ -235,7 +237,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
             )}
 
             {isTextile ? (
-              <TextileSelector product={product} onSkuChange={setTextileSku} />
+              <TextileSelector product={product} onSkuChange={setTextileSku} onColorwayChange={setTextileColorway} />
             ) : variants.length > 0 && (
               <div className="mt-8">
                 <div className="mb-3 flex items-center justify-between">

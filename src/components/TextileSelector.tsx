@@ -7,16 +7,21 @@ import {
   getTextileSkus,
   isTextileSkuInStock,
   type CatalogProduct,
+  type TextileColorway,
   type TextileSku,
 } from "@/lib/catalog";
 
 interface TextileSelectorProps {
   product: CatalogProduct;
   onSkuChange: (sku: TextileSku | null) => void;
+  /** Fires as soon as a colourway is picked, ahead of a piece — lets the
+   * caller swap the main photo to the actual cloth right away instead of
+   * waiting on the full SKU, which only resolves once a piece is chosen too. */
+  onColorwayChange?: (colorway: TextileColorway | null) => void;
 }
 
 /** A deliberately short, visual purchase sequence for textile collections. */
-export default function TextileSelector({ product, onSkuChange }: TextileSelectorProps) {
+export default function TextileSelector({ product, onSkuChange, onColorwayChange }: TextileSelectorProps) {
   const [fabricId, setFabricId] = useState("");
   const [colorwayId, setColorwayId] = useState("");
   const [pieceId, setPieceId] = useState("");
@@ -33,6 +38,10 @@ export default function TextileSelector({ product, onSkuChange }: TextileSelecto
   useEffect(() => {
     onSkuChange(sku);
   }, [onSkuChange, sku]);
+
+  useEffect(() => {
+    onColorwayChange?.(colorway || null);
+  }, [onColorwayChange, colorway]);
 
   return (
     <div className="mt-7 space-y-6 rounded-2xl bg-[#FBF8F1] p-4 sm:p-5">
