@@ -716,7 +716,11 @@ export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct
     badge: data.badge || fallback?.badge,
     featured: data.featured ?? fallback?.featured ?? false,
     category: normalizeCategory(data.category || fallback?.category || "Ready Catalog"),
-    description: data.description || fallback?.description || "Custom textile design and print service.",
+    // The generic fallback sentence only makes sense for a product with no
+    // other way to explain itself. A textile collection's fabric/colourway/
+    // piece picker already does that job — showing the same boilerplate
+    // under every untitled collection reads as filler, not information.
+    description: data.description || fallback?.description || (textileFabrics.length > 0 ? "" : "Custom textile design and print service."),
     highlights: data.highlights?.length ? data.highlights : fallback?.highlights || [],
     details: data.details?.length ? data.details : fallback?.details || [],
     tags: data.tags?.length ? data.tags : fallback?.tags || [],

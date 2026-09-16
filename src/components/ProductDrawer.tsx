@@ -328,22 +328,35 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
             </div>
           </div>
 
-          <div className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
-            {soldOut ? (
-              <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
-                Out of stock
-              </div>
-            ) : (
-              <button
-                onClick={handleAdd}
-                disabled={isTextile && !textileSku}
-                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90 disabled:cursor-not-allowed disabled:opacity-50"
+          {/* A textile collection keeps the footer out of sight until a full
+              fabric/colour/piece is picked — a disabled prompt button reads as
+              clutter, so the Add to Cart bar only appears once it can be used. */}
+          <AnimatePresence initial={false}>
+            {(soldOut || !isTextile || textileSku) && (
+              <motion.div
+                key="drawer-cta"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 16 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]"
               >
-                <Check size={18} />
-                {isTextile && !textileSku ? "Choose fabric, colour and piece" : `Add to Cart — GHS ${(unitPrice * quantity).toFixed(2)}`}
-              </button>
+                {soldOut ? (
+                  <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
+                    Out of stock
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleAdd}
+                    className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90"
+                  >
+                    <Check size={18} />
+                    {`Add to Cart — GHS ${(unitPrice * quantity).toFixed(2)}`}
+                  </button>
+                )}
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
         </motion.div>
       </div>
     </AnimatePresence>

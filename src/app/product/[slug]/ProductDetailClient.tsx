@@ -211,7 +211,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
             </div>
 
             <h1 className="font-serif text-4xl font-semibold leading-tight md:text-5xl">{product.name}</h1>
-            <p className="mt-4 text-base leading-7 text-charcoal/66">{product.description}</p>
+            {product.description && <p className="mt-4 text-base leading-7 text-charcoal/66">{product.description}</p>}
 
             <div className="mt-6 flex flex-col gap-2 border-y border-soft-grey py-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -334,23 +334,36 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
               </div>
             </div>
 
-            <div className="mt-8">
-              {soldOut ? (
-                <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey px-5 text-sm font-medium text-charcoal/50">
-                  Out of stock
-                </div>
-              ) : (
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={addToCart}
-                  disabled={isTextile && !textileSku}
-                  className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90 disabled:cursor-not-allowed disabled:opacity-50"
+            {/* Textile collections hide the Add to Cart button until a full
+                fabric/colour/piece is picked, rather than showing a disabled
+                prompt button the customer can't use yet. */}
+            <AnimatePresence initial={false}>
+              {(soldOut || !isTextile || textileSku) && (
+                <motion.div
+                  key="product-cta"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 12 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="mt-8"
                 >
-                  <ShoppingBag size={18} />
-                  {isTextile && !textileSku ? "Choose fabric, colour and piece" : "Add to Cart"}
-                </motion.button>
+                  {soldOut ? (
+                    <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey px-5 text-sm font-medium text-charcoal/50">
+                      Out of stock
+                    </div>
+                  ) : (
+                    <motion.button
+                      whileTap={{ scale: 0.97 }}
+                      onClick={addToCart}
+                      className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
+                    >
+                      <ShoppingBag size={18} />
+                      Add to Cart
+                    </motion.button>
+                  )}
+                </motion.div>
               )}
-            </div>
+            </AnimatePresence>
 
             <div className="mt-8 grid gap-3 border-t border-soft-grey pt-6 text-sm text-charcoal/72">
               <div className="flex items-center gap-3">
