@@ -103,6 +103,71 @@ export interface ProductVariant {
   inStock?: boolean;
 }
 
+/**
+ * A real textile collection is not a loose list of colours and sizes. A
+ * fabric (for example Lace or Cloth) contains its own colourways, and every
+ * colourway has the pieces a customer can buy. Stock is held in six-yard
+ * units on the colourway: a full piece consumes two units; a half piece one.
+ * Keeping this hierarchy intact lets the shop show the same simple choices
+ * the owner creates, while checkout can validate an exact SKU.
+ */
+export interface TextilePiece {
+  id: string;
+  label: string;
+  yards: number;
+  price: number;
+  active?: boolean;
+}
+
+export interface TextileColorway {
+  id: string;
+  name: string;
+  hex: string;
+  hex2?: string;
+  image?: string;
+  pieces: TextilePiece[];
+  /** Available six-yard units. A 12-yard full piece uses two units. */
+  stockUnits: number;
+  reservedUnits?: number;
+  active?: boolean;
+}
+
+export interface TextileFabric {
+  id: string;
+  name: string;
+  colorways: TextileColorway[];
+  active?: boolean;
+}
+
+export interface TextileSku {
+  id: string;
+  fabric: TextileFabric;
+  colorway: TextileColorway;
+  piece: TextilePiece;
+}
+
+export function hasTextileOptions(product: Pick<CatalogProduct, "textileFabrics">): boolean {
+  return !!product.textileFabrics?.some((fabric) => fabric.active !== false && fabric.colorways.some((colorway) => colorway.active !== false && colorway.pieces.some((piece) => piece.active !== false && piece.price > 0)));
+}
+
+export function getTextileSkus(product: Pick<CatalogProduct, "textileFabrics">): TextileSku[] {
+  return (product.textileFabrics || []).flatMap((fabric) =>
+    fabric.active === false ? [] : fabric.colorways.flatMap((colorway) =>
+      colorway.active === false ? [] : colorway.pieces
+        .filter((piece) => piece.active !== false && piece.price > 0)
+        .map((piece) => ({ id: `${fabric.id}:${colorway.id}:${piece.id}`, fabric, colorway, piece }))
+    )
+  );
+}
+
+export function findTextileSku(product: Pick<CatalogProduct, "textileFabrics">, skuId?: string): TextileSku | undefined {
+  return getTextileSkus(product).find((sku) => sku.id === skuId);
+}
+
+export function isTextileSkuInStock(sku: TextileSku): boolean {
+  return sku.colorway.stockUnits - (sku.colorway.reservedUnits || 0) >= Math.max(1, Math.ceil(sku.piece.yards / 6));
+}
+
 /** False only when a variant has been explicitly marked out of stock —
  * absent/true both mean available, so existing rows stay sellable by default. */
 export function isVariantInStock(variant: Pick<ProductVariant, "inStock">): boolean {
@@ -191,6 +256,7 @@ export interface CatalogProduct {
   imageUrl: string;
   gallery?: string[];
   variants?: ProductVariant[];
+  textileFabrics?: TextileFabric[];
   /** @deprecated superseded by `variants` — read only by deriveVariants. */
   colors: string[];
   /** @deprecated superseded by `variants` — read only by deriveVariants. */
@@ -553,8 +619,9 @@ export function hasPricedColorOption(colorOptions: ProductColorOption[] | undefi
 }
 
 export function isQuoteProduct(
-  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions" | "variants">
+  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions" | "variants" | "textileFabrics">
 ) {
+  if (hasTextileOptions(product)) return false;
   if (
     hasPricedVariant(product.variants) ||
     hasPricedOptionValue(product.optionGroups) ||
@@ -572,7 +639,7 @@ export function isQuoteProduct(
  * customers decipher a second ordering model.
  */
 export function isMarketplaceProduct(
-  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions" | "variants">
+  product: Pick<CatalogProduct, "price" | "priceMode" | "optionGroups" | "colorOptions" | "variants" | "textileFabrics">
 ) {
   return !isQuoteProduct(product);
 }
@@ -583,7 +650,8 @@ export function isMarketplaceProduct(
 function getLowestOptionPrice(
   optionGroups: ProductOptionGroup[] | undefined,
   colorOptions: ProductColorOption[] | undefined,
-  variants: ProductVariant[] | undefined
+  variants: ProductVariant[] | undefined,
+  textileFabrics?: TextileFabric[]
 ): number | null {
   let lowest: number | null = null;
   for (const group of optionGroups || []) {
@@ -598,19 +666,22 @@ function getLowestOptionPrice(
   for (const variant of variants || []) {
     if (variant.price !== undefined && (lowest === null || variant.price < lowest)) lowest = variant.price;
   }
+  for (const sku of getTextileSkus({ textileFabrics })) {
+    if (lowest === null || sku.piece.price < lowest) lowest = sku.piece.price;
+  }
   return lowest;
 }
 
 export function getPriceLabel(
   product: Pick<
     CatalogProduct,
-    "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups" | "colorOptions" | "variants"
+    "price" | "priceMode" | "startingPriceLabel" | "unit" | "optionGroups" | "colorOptions" | "variants" | "textileFabrics"
   >
 ) {
   if (isQuoteProduct(product)) return product.startingPriceLabel || "Price not set yet";
   const unitSuffix = product.unit ? ` / ${product.unit}` : "";
   if (product.price > 0) return `GHS ${product.price.toFixed(2)}${unitSuffix}`;
-  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups, product.colorOptions, product.variants);
+  const lowestOptionPrice = getLowestOptionPrice(product.optionGroups, product.colorOptions, product.variants, product.textileFabrics);
   return lowestOptionPrice !== null
     ? `From GHS ${lowestOptionPrice.toFixed(2)}${unitSuffix}`
     : product.startingPriceLabel || "Price not set yet";
@@ -622,6 +693,11 @@ export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct
   const colorNames = data.colorNames || fallback?.colorNames;
   const colorOptions = data.colorOptions?.length ? data.colorOptions : fallback?.colorOptions;
   const optionGroups = data.optionGroups?.length ? data.optionGroups : fallback?.optionGroups;
+  const textileFabrics = data.textileFabrics || fallback?.textileFabrics || [];
+  // A textile collection often has a photo per colourway rather than a
+  // separately uploaded generic cover. Use that first available real photo
+  // for the shop card, so a newly saved collection never looks blank.
+  const textileCoverImage = textileFabrics.flatMap((fabric) => fabric.colorways).find((colorway) => colorway.image)?.image;
   return {
     id,
     name: data.name || fallback?.name || "Custom Textile Order",
@@ -629,9 +705,10 @@ export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct
     priceMode: data.priceMode || fallback?.priceMode || (Number(data.price ?? fallback?.price ?? 0) > 0 ? "fixed" : "quote"),
     startingPriceLabel: data.startingPriceLabel || fallback?.startingPriceLabel,
     unit: data.unit || fallback?.unit || "",
-    imageUrl: data.imageUrl || fallback?.imageUrl || "/placeholder.svg",
+    imageUrl: data.imageUrl || textileCoverImage || fallback?.imageUrl || "/placeholder.svg",
     gallery: data.gallery || fallback?.gallery,
     variants: deriveVariants({ variants: data.variants, colorOptions, colors, colorNames, optionGroups }),
+    textileFabrics,
     colors,
     colorNames,
     colorOptions,

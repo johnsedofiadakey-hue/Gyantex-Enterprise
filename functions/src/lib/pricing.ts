@@ -34,6 +34,17 @@ export interface ProductVariant {
   inStock?: boolean;
 }
 
+export interface TextilePiece { id: string; label: string; yards: number; price: number; active?: boolean; }
+export interface TextileColorway {
+  id: string;
+  name: string;
+  stockUnits: number;
+  reservedUnits?: number;
+  pieces: TextilePiece[];
+  active?: boolean;
+}
+export interface TextileFabric { id: string; name: string; colorways: TextileColorway[]; active?: boolean; }
+
 export interface CartItemInput {
   productId: string;
   name?: string;
@@ -45,6 +56,10 @@ export interface CartItemInput {
   size?: string;
   selections?: Record<string, string>;
   image?: string;
+  skuId?: string;
+  fabric?: string;
+  colorway?: string;
+  pieceLabel?: string;
   purchaseType: PurchaseType;
   quantity: number;
 }
@@ -59,6 +74,39 @@ export interface ProductPriceData {
   variants?: ProductVariant[];
   optionGroups?: ProductOptionGroup[];
   colorOptions?: ProductColorOption[];
+  textileFabrics?: TextileFabric[];
+}
+
+export interface TextileSelection {
+  fabric: TextileFabric;
+  colorway: TextileColorway;
+  piece: TextilePiece;
+}
+
+export function getTextileSelection(product: ProductPriceData, skuId?: string): TextileSelection | null {
+  if (!skuId || !product.textileFabrics?.length) return null;
+  for (const fabric of product.textileFabrics) {
+    if (fabric.active === false) continue;
+    for (const colorway of fabric.colorways) {
+      if (colorway.active === false) continue;
+      for (const piece of colorway.pieces) {
+        if (piece.active === false) continue;
+        if (`${fabric.id}:${colorway.id}:${piece.id}` === skuId) return { fabric, colorway, piece };
+      }
+    }
+  }
+  return null;
+}
+
+export function hasTextileOptions(product: ProductPriceData): boolean {
+  return !!product.textileFabrics?.some((fabric) => fabric.active !== false && fabric.colorways.some((colorway) => colorway.active !== false && colorway.pieces.some((piece) => piece.active !== false && piece.price > 0)));
+}
+
+/** Required six-yard units for an exact textile choice. */
+export function getTextileUnits(item: CartItemInput, product: ProductPriceData): number {
+  const selection = getTextileSelection(product, item.skuId);
+  if (!selection) throw new Error(`"${product.name || 'An item'}" needs a valid fabric, colour and piece selected.`);
+  return Math.max(1, Math.ceil(selection.piece.yards / 6)) * item.quantity;
 }
 
 function optionValueLabel(value: ProductOptionValue): string {
@@ -206,6 +254,7 @@ function hasPricedVariant(variants?: ProductVariant[]): boolean {
 }
 
 export function isQuoteProduct(product: ProductPriceData): boolean {
+  if (hasTextileOptions(product)) return false;
   if (
     hasPricedVariant(product.variants) ||
     hasPricedOptionValue(product.optionGroups) ||
@@ -217,6 +266,9 @@ export function isQuoteProduct(product: ProductPriceData): boolean {
 }
 
 export function shouldTrackInventory(product: ProductPriceData): boolean {
+  // Textile stock is held on the selected colourway, rather than the legacy
+  // product-wide stock field. Checkout handles it separately.
+  if (hasTextileOptions(product)) return false;
   return product.trackInventory !== false && !isQuoteProduct(product) && typeof product.stockUnits === 'number';
 }
 
@@ -240,9 +292,15 @@ export function computeItemUnitPrice(
   purchaseType: PurchaseType,
   selections?: Record<string, string>,
   color?: string,
-  size?: string
+  size?: string,
+  skuId?: string
 ): number {
   if (isQuoteProduct(product)) return 0;
+  if (hasTextileOptions(product)) {
+    const selection = getTextileSelection(product, skuId);
+    if (!selection) throw new Error(`"${product.name || 'An item'}" needs a valid textile SKU selected.`);
+    return selection.piece.price;
+  }
   const selectedPrice =
     priceFromVariant(product, color, size) ?? priceFromColor(product, color) ?? priceFromSelections(product, selections);
   if (selectedPrice === null && (product.price || 0) <= 0) {
@@ -287,7 +345,7 @@ export function computeOrderTotals(
       hasQuoteItems = true;
       continue;
     }
-    subtotal += computeItemUnitPrice(product, item.purchaseType, item.selections, item.color, item.size) * item.quantity;
+    subtotal += computeItemUnitPrice(product, item.purchaseType, item.selections, item.color, item.size, item.skuId) * item.quantity;
   }
 
   const deliveryFee = hasQuoteItems ? 0 : computeDeliveryFee(deliveryZone, deliveryFeeMap);

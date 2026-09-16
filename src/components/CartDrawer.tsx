@@ -83,7 +83,9 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                         <div className="mt-1 text-xs text-charcoal/55">
                           {item.price <= 0
                             ? "Unavailable"
-                            : [item.color, item.size, item.purchaseType === "half" ? "Half" : "Full"].filter(Boolean).join(" | ")}
+                            : item.skuId
+                              ? [item.fabric, item.colorway, item.pieceLabel].filter(Boolean).join(" | ")
+                              : [item.color, item.size, item.purchaseType === "half" ? "Half" : "Full"].filter(Boolean).join(" | ")}
                         </div>
                         {item.selections && Object.keys(item.selections).length > 0 && (
                           <div className="mt-0.5 text-xs text-charcoal/55">

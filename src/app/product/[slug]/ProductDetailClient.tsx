@@ -23,8 +23,10 @@ import {
   getDefaultVariantIndex,
   getVariantLabel,
   getVariantSwatchStyle,
+  hasTextileOptions,
   isVariantInStock,
   type CatalogProduct,
+  type TextileSku,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
 import { useCartStore } from "@/store/useCartStore";
@@ -35,6 +37,7 @@ import Footer from "@/components/Footer";
 import KenteStripe from "@/components/KenteStripe";
 import ProductImage from "@/components/ProductImage";
 import CartDrawer from "@/components/CartDrawer";
+import TextileSelector from "@/components/TextileSelector";
 
 export type Product = CatalogProduct;
 
@@ -48,6 +51,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   );
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
+  const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
 
   const product = initialProduct;
@@ -74,9 +78,10 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   }
 
   const variants = (product.variants || []).filter(isVariantInStock);
+  const isTextile = hasTextileOptions(product);
   // The product defines variants, but every one is currently out of stock —
   // distinct from a plain product with no variants at all, which is always buyable.
-  const soldOut = (product.variants?.length ?? 0) > 0 && variants.length === 0;
+  const soldOut = !isTextile && (product.variants?.length ?? 0) > 0 && variants.length === 0;
   const selectedVariant = variants[selectedVariantIndex];
   // A variant with its own size (e.g. "12 Yards") already lets the owner
   // price each length independently — showing the generic full/half toggle
@@ -89,8 +94,8 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   // Mirrors functions/src/lib/pricing.ts's computeItemUnitPrice exactly,
   // since the server re-derives this price independently.
   const basePrice = selectedVariant?.price ?? product.price;
-  const unitPrice = effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
-  const currentImage = selectedVariant?.image || gallery[selectedImage] || product.imageUrl;
+  const unitPrice = isTextile ? (textileSku?.piece.price || 0) : effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
+  const currentImage = isTextile ? textileSku?.colorway.image || product.imageUrl : selectedVariant?.image || gallery[selectedImage] || product.imageUrl;
 
   const buildCartItem = () => ({
     id: product.id,
@@ -103,6 +108,10 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
     image: currentImage,
     color: selectedVariant?.color,
     size: selectedVariant?.size,
+    skuId: textileSku?.id,
+    fabric: textileSku?.fabric.name,
+    colorway: textileSku?.colorway.name,
+    pieceLabel: textileSku?.piece.label,
     purchaseType: effectivePurchaseType,
     quantity,
   });
@@ -225,7 +234,9 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
               </div>
             )}
 
-            {variants.length > 0 && (
+            {isTextile ? (
+              <TextileSelector product={product} onSkuChange={setTextileSku} />
+            ) : variants.length > 0 && (
               <div className="mt-8">
                 <div className="mb-3 flex items-center justify-between">
                   <span className="flex items-center gap-2 font-medium">
@@ -274,7 +285,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
               </div>
             )}
 
-            {canSplit && (
+            {!isTextile && canSplit && (
               <div className="mt-8">
                 <span className="mb-3 block font-medium">Purchase type</span>
                 <div className="grid grid-cols-2 gap-3">
@@ -330,10 +341,11 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
                 <motion.button
                   whileTap={{ scale: 0.97 }}
                   onClick={addToCart}
-                  className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90"
+                  disabled={isTextile && !textileSku}
+                  className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 py-4 text-sm font-semibold text-white transition hover:bg-olive/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <ShoppingBag size={18} />
-                  Add to Cart
+                  {isTextile && !textileSku ? "Choose fabric, colour and piece" : "Add to Cart"}
                 </motion.button>
               )}
             </div>
@@ -381,10 +393,11 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={addToCart}
-            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white"
+            disabled={isTextile && !textileSku}
+            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ShoppingBag size={17} />
-            Add to Cart
+            {isTextile && !textileSku ? "Choose your version" : "Add to Cart"}
           </motion.button>
         )}
       </div>

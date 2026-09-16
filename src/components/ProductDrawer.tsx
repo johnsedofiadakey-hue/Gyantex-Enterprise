@@ -8,13 +8,16 @@ import {
   getPriceLabel,
   getVariantLabel,
   getVariantSwatchStyle,
+  hasTextileOptions,
   isVariantInStock,
   type CatalogProduct,
+  type TextileSku,
 } from "@/lib/catalog";
 import { trackEvent } from "@/lib/analytics";
 import { useCartStore } from "@/store/useCartStore";
 import { useToastStore } from "@/store/useToastStore";
 import ProductImage from "@/components/ProductImage";
+import TextileSelector from "@/components/TextileSelector";
 
 interface ProductDrawerProps {
   product: CatalogProduct | null;
@@ -62,9 +65,11 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   );
   const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
+  const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
 
   const variants = (product.variants || []).filter(isVariantInStock);
-  const soldOut = (product.variants?.length ?? 0) > 0 && variants.length === 0;
+  const isTextile = hasTextileOptions(product);
+  const soldOut = !isTextile && (product.variants?.length ?? 0) > 0 && variants.length === 0;
   const selectedVariant = variants[selectedVariantIndex];
   // A variant with its own size (e.g. "12 Yards") already lets the owner
   // price each length independently — showing the generic full/half toggle
@@ -75,14 +80,12 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const canSplit = !variants.some((v) => v.size);
   // Mirrors functions/src/lib/pricing.ts's computeItemUnitPrice exactly.
   const fullPiecePrice = selectedVariant?.price ?? product.price;
-  const unitPrice = purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
+  const unitPrice = isTextile ? (textileSku?.piece.price || 0) : purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
 
-  const gallery = useMemo(() => {
-    const variantImage = selectedVariant?.image;
-    return [variantImage, product.imageUrl, ...(product.gallery || [])].filter(
-      (src, index, list): src is string => Boolean(src) && list.indexOf(src) === index
-    );
-  }, [selectedVariant, product.imageUrl, product.gallery]);
+  const variantImage = isTextile ? textileSku?.colorway.image : selectedVariant?.image;
+  const gallery = [variantImage, product.imageUrl, ...(product.gallery || [])].filter(
+    (src, index, list): src is string => Boolean(src) && list.indexOf(src) === index
+  );
   const image = gallery[selectedImage] || gallery[0];
 
   const similarProducts = useMemo(
@@ -102,6 +105,10 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
       image,
       color: selectedVariant?.color,
       size: selectedVariant?.size,
+      skuId: textileSku?.id,
+      fabric: textileSku?.fabric.name,
+      colorway: textileSku?.colorway.name,
+      pieceLabel: textileSku?.piece.label,
       purchaseType,
       quantity,
     });
@@ -196,7 +203,9 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                 <p className="mt-3 text-sm leading-6 text-charcoal/62">{product.description}</p>
               )}
 
-              {variants.length > 0 && (
+              {isTextile ? (
+                <TextileSelector product={product} onSkuChange={setTextileSku} />
+              ) : variants.length > 0 && (
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-medium">Choose an option</span>
@@ -242,7 +251,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                 </div>
               )}
 
-              {canSplit && (
+              {!isTextile && canSplit && (
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-medium">Piece</span>
@@ -320,10 +329,11 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
             ) : (
               <button
                 onClick={handleAdd}
-                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90"
+                disabled={isTextile && !textileSku}
+                className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-5 text-sm font-semibold text-white transition hover:bg-olive/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Check size={18} />
-                Add to Cart — GHS {(unitPrice * quantity).toFixed(2)}
+                {isTextile && !textileSku ? "Choose fabric, colour and piece" : `Add to Cart — GHS ${(unitPrice * quantity).toFixed(2)}`}
               </button>
             )}
           </div>

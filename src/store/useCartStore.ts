@@ -15,6 +15,11 @@ export interface CartItem {
   color?: string;
   /** The selected variant's size/length label, e.g. "12 Yards" — see ProductVariant. */
   size?: string;
+  /** Exact server-validated textile SKU: fabric + colourway + piece. */
+  skuId?: string;
+  fabric?: string;
+  colorway?: string;
+  pieceLabel?: string;
   /** Chosen value per option group, e.g. { "Cloth Length": "12 Yards", "Size": "Large" }. */
   selections?: Record<string, string>;
   purchaseType: 'full' | 'half';
@@ -43,6 +48,7 @@ export const useCartStore = create<CartStore>()(
         const existingItemIndex = state.items.findIndex(
           (i) =>
             i.productId === item.productId &&
+            i.skuId === item.skuId &&
             i.color === item.color &&
             i.size === item.size &&
             i.purchaseType === item.purchaseType &&

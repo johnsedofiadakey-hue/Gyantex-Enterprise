@@ -27,6 +27,7 @@ import {
   type ProductColorOption,
   type ProductOptionGroup,
   type ProductVariant,
+  type TextileFabric,
 } from "@/lib/catalog";
 import { db, storage } from "@/lib/firebase";
 import { useToastStore } from "@/store/useToastStore";
@@ -44,6 +45,7 @@ interface Product {
   category?: string;
   imageUrl?: string;
   variants?: ProductVariant[];
+  textileFabrics?: TextileFabric[];
   colors: string[];
   colorNames?: string[];
   colorOptions?: ProductColorOption[];
@@ -78,12 +80,23 @@ interface VariantDraft {
   inStock: boolean;
 }
 
-const DEFAULT_VARIANT_DRAFTS: VariantDraft[] = [
-  { color: "Black", hex: "#111111", size: "", price: "", inStock: true },
-  { color: "White", hex: "#ffffff", size: "", price: "", inStock: true },
-  { color: "Burgundy", hex: "#7b1e2b", size: "", price: "", inStock: true },
-  { color: "Gold", hex: "#c8b27a", size: "", price: "", inStock: true },
-];
+const DEFAULT_VARIANT_DRAFTS: VariantDraft[] = [];
+
+const makeTextileFabric = (): TextileFabric => ({
+  id: Math.random().toString(36).slice(2, 10),
+  name: "Cloth",
+  colorways: [{
+    id: Math.random().toString(36).slice(2, 10),
+    name: "Black & White",
+    hex: "#111111",
+    hex2: "#ffffff",
+    stockUnits: 0,
+    pieces: [
+      { id: "full", label: "Full Piece", yards: 12, price: 0 },
+      { id: "half", label: "Half Piece", yards: 6, price: 0 },
+    ],
+  }],
+});
 
 const EMPTY_FORM = {
   name: "",
@@ -92,6 +105,7 @@ const EMPTY_FORM = {
   description: "",
   tags: "",
   variants: DEFAULT_VARIANT_DRAFTS,
+  textileFabrics: [] as TextileFabric[],
   trackInventory: false,
   stockUnits: "",
   featured: false,
@@ -107,6 +121,7 @@ export default function AdminProductsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [textileImageFiles, setTextileImageFiles] = useState<Record<string, File>>({});
   const [saving, setSaving] = useState(false);
   const toast = useToastStore((state) => state.show);
 
@@ -174,8 +189,12 @@ export default function AdminProductsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(EMPTY_FORM);
+    // New catalogue items are textile collections. Starting with one Cloth
+    // card makes the form immediately useful instead of exposing retired
+    // base-price and generic-variant controls.
+    setForm({ ...EMPTY_FORM, textileFabrics: [makeTextileFabric()] });
     setImageFile(null);
+    setTextileImageFiles({});
     setShowForm(true);
   };
 
@@ -200,11 +219,13 @@ export default function AdminProductsPage() {
         price: variant.price !== undefined ? String(variant.price) : "",
         inStock: variant.inStock !== false,
       })),
+      textileFabrics: product.textileFabrics || [],
       trackInventory: product.trackInventory !== false && (product.price || 0) > 0,
       stockUnits: String(product.stockUnits ?? ""),
       featured: product.featured || false,
     });
     setImageFile(null);
+    setTextileImageFiles({});
     setShowForm(true);
   };
 
@@ -279,8 +300,32 @@ export default function AdminProductsPage() {
       // Treat this as a draft: set a real price (here or per-variant below)
       // to make it visible and purchasable.
       const price = Number(form.price) || 0;
-      const isQuote = price <= 0;
-      const trackInventory = !isQuote && form.trackInventory;
+      const textileFabrics = (await Promise.all(form.textileFabrics.map(async (fabric) => ({
+        ...fabric,
+        name: fabric.name.trim(),
+        colorways: await Promise.all(fabric.colorways
+          .filter((colorway) => colorway.name.trim())
+          .map(async (colorway) => {
+            let image = colorway.image;
+            const file = textileImageFiles[colorway.id];
+            if (file) {
+              const compressed = await compressImageForUpload(file);
+              const storageRef = ref(storage, `products/textile/${Date.now()}_${compressed.name}`);
+              await uploadBytes(storageRef, compressed);
+              image = await getDownloadURL(storageRef);
+            }
+            return {
+            ...colorway,
+            ...(image ? { image } : {}),
+            name: colorway.name.trim(),
+            stockUnits: Math.max(0, Number(colorway.stockUnits) || 0),
+            pieces: colorway.pieces.map((piece) => ({ ...piece, price: Math.max(0, Number(piece.price) || 0) })),
+            };
+          })),
+      })))).filter((fabric) => fabric.name && fabric.colorways.length);
+      const hasTextilePrice = textileFabrics.some((fabric) => fabric.colorways.some((colorway) => colorway.pieces.some((piece) => piece.price > 0)));
+      const isQuote = price <= 0 && !hasTextilePrice;
+      const trackInventory = !isQuote && !hasTextilePrice && form.trackInventory;
       const payload = {
         name: form.name,
         priceMode: isQuote ? "quote" : "fixed",
@@ -290,6 +335,7 @@ export default function AdminProductsPage() {
         description: form.description,
         tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
         variants,
+        textileFabrics,
         // Cleared going forward — `variants` is the single source of truth
         // now; this form always writes it, never the old split shape.
         colorOptions: [],
@@ -354,6 +400,10 @@ export default function AdminProductsPage() {
   };
 
   const stockLabel = (product: Product) => {
+    if (product.textileFabrics?.length) {
+      const units = product.textileFabrics.flatMap((fabric) => fabric.colorways).reduce((sum, colorway) => sum + (colorway.stockUnits || 0), 0);
+      return `${units} six-yard unit${units === 1 ? "" : "s"}`;
+    }
     if (product.priceMode === "quote" || product.trackInventory === false) return "Not tracked";
     return `${product.stockUnits ?? 0} unit${product.stockUnits === 1 ? "" : "s"}`;
   };
@@ -369,12 +419,12 @@ export default function AdminProductsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-charcoal/60">{products.length} product or service path{products.length === 1 ? "" : "s"}</p>
+        <p className="text-sm text-charcoal/60">{products.length} product{products.length === 1 ? "" : "s"}</p>
         <button
           onClick={openCreate}
           className="flex items-center gap-2 rounded-md bg-olive px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-olive/90"
         >
-          <Plus size={16} /> Add Path
+          <Plus size={16} /> Add Product
         </button>
       </div>
 
@@ -450,7 +500,7 @@ export default function AdminProductsPage() {
           <button className="absolute inset-0 bg-charcoal/40" onClick={() => setShowForm(false)} aria-label="Close" />
           <form onSubmit={handleSave} className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto bg-white p-6 shadow-xl">
             <div className="mb-6 flex items-center justify-between">
-              <h3 className="font-serif text-xl font-semibold">{editing ? "Edit Path" : "Add Path"}</h3>
+              <h3 className="font-serif text-xl font-semibold">{editing ? "Edit Product" : "Add Product"}</h3>
               <button type="button" onClick={() => setShowForm(false)} className="text-charcoal/50 hover:text-charcoal" aria-label="Close form">
                 <X size={20} />
               </button>
@@ -462,7 +512,7 @@ export default function AdminProductsPage() {
                 <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" />
               </div>
 
-              <div>
+              {form.textileFabrics.length === 0 && <div>
                 <label className="mb-1.5 block text-sm font-medium">Price (GHS)</label>
                 <input
                   type="number"
@@ -478,7 +528,7 @@ export default function AdminProductsPage() {
                   Variant below has its own price, the one the customer picks is charged instead of this base price (and
                   the product is already visible).
                 </p>
-              </div>
+              </div>}
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Category</label>
@@ -489,7 +539,7 @@ export default function AdminProductsPage() {
                 </select>
               </div>
 
-              <div className="md:col-span-2 flex items-center">
+              {form.textileFabrics.length === 0 && <div className="md:col-span-2 flex items-center">
                 <label className="flex items-center gap-3 rounded-md bg-soft-grey p-2.5 text-sm font-medium">
                   <input
                     type="checkbox"
@@ -499,16 +549,73 @@ export default function AdminProductsPage() {
                   />
                   Feature as Best Seller
                 </label>
-              </div>
+              </div>}
 
               <div className="md:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium">Description</label>
                 <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="h-24 w-full resize-none rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" />
               </div>
 
-              <div className="md:col-span-2">
+              <div className="md:col-span-2 rounded-md border border-olive/20 bg-[#FBF8F1] p-4">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold">Fabric, colour and piece prices</h4>
+                    <p className="mt-1 text-xs leading-5 text-charcoal/60">For cloth collections: add Lace or Cloth, its dual-colour versions, then set Full (12 yards) and Half (6 yards) prices. Stock is counted in 6-yard units for each colourway.</p>
+                  </div>
+                  <button type="button" onClick={() => setForm({ ...form, textileFabrics: [...form.textileFabrics, makeTextileFabric()] })} className="shrink-0 rounded-md border border-olive px-3 py-2 text-xs font-semibold text-olive hover:bg-olive hover:text-white">
+                    <Plus size={14} className="mr-1 inline" /> Add fabric
+                  </button>
+                </div>
+                {form.textileFabrics.length > 0 ? (
+                  <div className="mt-4 space-y-4">
+                    {form.textileFabrics.map((fabric, fabricIndex) => (
+                      <div key={fabric.id} className="rounded-md border border-charcoal/15 bg-white p-3">
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <input value={fabric.name} onChange={(event) => { const next = [...form.textileFabrics]; next[fabricIndex] = { ...fabric, name: event.target.value }; setForm({ ...form, textileFabrics: next }); }} placeholder="Fabric name, e.g. Lace" className="min-w-[150px] flex-1 rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
+                          <button type="button" onClick={() => setForm({ ...form, textileFabrics: form.textileFabrics.filter((_, index) => index !== fabricIndex) })} className="rounded-md px-2 py-2 text-xs text-terracotta hover:bg-terracotta/10">Remove</button>
+                        </div>
+                        <div className="space-y-2">
+                          {fabric.colorways.map((colorway, colorIndex) => (
+                            <div key={colorway.id} className="grid gap-2 rounded-md border border-charcoal/10 p-2 sm:grid-cols-[1fr_46px_46px_120px_110px_auto] sm:items-center">
+                              <input value={colorway.name} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, name: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} placeholder="Colourway, e.g. Black & White" className="rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
+                              <input type="color" value={colorway.hex} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="First colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
+                              <input type="color" value={colorway.hex2 || "#ffffff"} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex2: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="Second colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
+                              <input type="number" min="0" value={colorway.stockUnits} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, stockUnits: Number(event.target.value) }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} placeholder="6-yard stock" title="Number of 6-yard units in stock" className="rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
+                              <label className="flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-charcoal/30 px-2 py-2 text-xs text-charcoal/60 hover:border-olive">
+                                <Upload size={13} /> {textileImageFiles[colorway.id]?.name || (colorway.image ? "Change photo" : "Add photo")}
+                                <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) setTextileImageFiles({ ...textileImageFiles, [colorway.id]: file }); }} />
+                              </label>
+                              <button type="button" onClick={() => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors.splice(colorIndex, 1); next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} className="text-xs text-terracotta hover:underline">Remove colour</button>
+                            </div>
+                          ))}
+                        </div>
+                        <button type="button" onClick={() => {
+                          const next = [...form.textileFabrics];
+                          next[fabricIndex] = {
+                            ...fabric,
+                            colorways: [...fabric.colorways, {
+                              id: Math.random().toString(36).slice(2, 10), name: "", hex: "#111111", hex2: "#ffffff", stockUnits: 0,
+                              pieces: fabric.colorways[0]?.pieces.map((piece) => ({ ...piece })) || [{ id: "full", label: "Full Piece", yards: 12, price: 0 }, { id: "half", label: "Half Piece", yards: 6, price: 0 }],
+                            }],
+                          };
+                          setForm({ ...form, textileFabrics: next });
+                        }} className="mt-2 text-xs font-semibold text-olive hover:underline"><Plus size={13} className="mr-1 inline" />Add colourway</button>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          {fabric.colorways[0]?.pieces.map((piece, pieceIndex) => (
+                            <label key={piece.id} className="rounded-md bg-soft-grey p-2 text-xs font-medium">{piece.label} ({piece.yards} yards) — GHS
+                              <input type="number" min="0" step="0.01" value={piece.price} onChange={(event) => { const next = [...form.textileFabrics]; next[fabricIndex] = { ...fabric, colorways: fabric.colorways.map((colorway) => ({ ...colorway, pieces: colorway.pieces.map((currentPiece, index) => index === pieceIndex ? { ...currentPiece, price: Number(event.target.value) } : currentPiece) })) }; setForm({ ...form, textileFabrics: next }); }} className="ml-2 w-20 rounded border border-charcoal/20 bg-white p-1.5 text-sm" />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="mt-3 text-sm text-charcoal/55">Add a fabric to set up the collection.</p>}
+              </div>
+
+              {form.textileFabrics.length === 0 && <div className="md:col-span-2">
                 <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                  <label className="block text-sm font-medium">Variants</label>
+                  <label className="block text-sm font-medium">Legacy variants {form.textileFabrics.length > 0 ? "(not needed for this textile collection)" : ""}</label>
                   <div className="flex items-center gap-3">
                     {pricingPresets.length > 0 ? (
                       <select
@@ -691,14 +798,14 @@ export default function AdminProductsPage() {
                     ))}
                   </div>
                 )}
-              </div>
+              </div>}
 
-              <div className="md:col-span-2">
+              {form.textileFabrics.length === 0 && <div className="md:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium">Search tags</label>
                 <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} className="w-full rounded-md border border-charcoal/20 p-2.5 outline-none focus:border-olive" placeholder="funeral, church, school, custom cloth" />
-              </div>
+              </div>}
 
-              <div className="md:col-span-2 rounded-md bg-soft-grey p-4">
+              {form.textileFabrics.length === 0 && <div className="md:col-span-2 rounded-md bg-soft-grey p-4">
                 <label className="flex items-start gap-3 text-sm font-medium">
                   <input
                     type="checkbox"
@@ -720,9 +827,9 @@ export default function AdminProductsPage() {
                     <input type="number" min="0" value={form.stockUnits} onChange={(event) => setForm({ ...form, stockUnits: event.target.value })} className="w-full rounded-md border border-charcoal/20 bg-white p-2.5 outline-none focus:border-olive" />
                   </div>
                 )}
-              </div>
+              </div>}
 
-              {form.variants.length === 0 ? (
+              {form.textileFabrics.length === 0 && (form.variants.length === 0 ? (
                 <div className="md:col-span-2">
                   <label className="mb-1.5 block text-sm font-medium">Photo</label>
                   <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
@@ -737,7 +844,7 @@ export default function AdminProductsPage() {
                 <p className="md:col-span-2 text-xs text-charcoal/50">
                   This product&apos;s listing photo is its first variant&apos;s photo above — no separate upload needed.
                 </p>
-              )}
+              ))}
             </div>
 
             <button
@@ -745,7 +852,7 @@ export default function AdminProductsPage() {
               disabled={saving}
               className="mt-6 w-full rounded-md bg-olive py-3 font-semibold text-white transition-colors hover:bg-olive/90 disabled:opacity-70"
             >
-              {saving ? "Saving..." : editing ? "Save Changes" : "Create Path"}
+              {saving ? "Saving..." : editing ? "Save Changes" : "Create Product"}
             </button>
           </form>
         </div>

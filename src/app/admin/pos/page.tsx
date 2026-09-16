@@ -11,13 +11,16 @@ import {
   getPriceLabel,
   getVariantLabel,
   getVariantSwatchStyle,
+  hasTextileOptions,
   isQuoteProduct,
   isVariantInStock,
+  type TextileSku,
   normalizeCatalogProduct,
 } from "@/lib/catalog";
 import ProductImage from "@/components/ProductImage";
 import { useToastStore } from "@/store/useToastStore";
 import { getCallableErrorMessage } from "@/lib/errors";
+import TextileSelector from "@/components/TextileSelector";
 
 /** CatalogProduct plus the stock fields the storefront never needs but the
  * register does — pulled straight off the Firestore doc, not part of the
@@ -32,6 +35,10 @@ interface PosCartLine {
   unitPrice: number;
   color?: string;
   size?: string;
+  skuId?: string;
+  fabric?: string;
+  colorway?: string;
+  pieceLabel?: string;
   purchaseType: "full" | "half";
   quantity: number;
 }
@@ -43,8 +50,8 @@ interface SaleReceipt {
   itemCount: number;
 }
 
-function lineKey(productId: string, color: string | undefined, size: string | undefined, purchaseType: string) {
-  return [productId, color || "", size || "", purchaseType].join("|");
+function lineKey(productId: string, color: string | undefined, size: string | undefined, purchaseType: string, skuId?: string) {
+  return [productId, skuId || "", color || "", size || "", purchaseType].join("|");
 }
 
 export default function AdminPosPage() {
@@ -100,9 +107,9 @@ export default function AdminPosPage() {
   const changeDue = paymentMethod === "cash" && amountTendered ? tendered - subtotal : null;
 
   const addLine = (line: Omit<PosCartLine, "lineId">) => {
-    const key = lineKey(line.productId, line.color, line.size, line.purchaseType);
+    const key = lineKey(line.productId, line.color, line.size, line.purchaseType, line.skuId);
     setCart((prev) => {
-      const existing = prev.find((l) => lineKey(l.productId, l.color, l.size, l.purchaseType) === key);
+      const existing = prev.find((l) => lineKey(l.productId, l.color, l.size, l.purchaseType, l.skuId) === key);
       if (existing) {
         return prev.map((l) => (l === existing ? { ...l, quantity: l.quantity + line.quantity } : l));
       }
@@ -367,9 +374,10 @@ function PosProductCard({
   onAddVariant: (line: Omit<PosCartLine, "lineId">) => void;
 }) {
   const allVariants = product.variants || [];
+  const isTextile = hasTextileOptions(product);
   const variants = allVariants.filter(isVariantInStock);
-  const hasVariants = allVariants.length > 0;
-  const stock = product.trackInventory === false ? null : (product.stockUnits ?? 0) - (product.reservedUnits ?? 0);
+  const hasVariants = allVariants.length > 0 || isTextile;
+  const stock = isTextile || product.trackInventory === false ? null : (product.stockUnits ?? 0) - (product.reservedUnits ?? 0);
   // Every defined variant has been marked out of stock — distinct from a
   // plain product with no variants at all, which is never blocked by this.
   const soldOut = allVariants.length > 0 && variants.length === 0;
@@ -378,6 +386,7 @@ function PosProductCard({
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(() => getDefaultVariantIndex(variants));
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [quantity, setQuantity] = useState(1);
+  const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
   const selectedVariant = variants[selectedVariantIndex];
   // Same rule as the storefront: a variant with its own size already prices
   // each length independently, so the generic full/half toggle would just
@@ -399,14 +408,19 @@ function PosProductCard({
   };
 
   const handleAdd = () => {
+    if (isTextile && !textileSku) return;
     onAddVariant({
       productId: product.id,
       name: product.name,
-      image: selectedVariant?.image || product.imageUrl,
-      unitPrice: finalUnitPrice,
+      image: textileSku?.colorway.image || selectedVariant?.image || product.imageUrl,
+      unitPrice: isTextile ? textileSku!.piece.price : finalUnitPrice,
       color: selectedVariant?.color,
       size: selectedVariant?.size,
-      purchaseType,
+      skuId: textileSku?.id,
+      fabric: textileSku?.fabric.name,
+      colorway: textileSku?.colorway.name,
+      pieceLabel: textileSku?.piece.label,
+      purchaseType: isTextile ? (textileSku!.piece.yards <= 6 ? "half" : "full") : purchaseType,
       quantity,
     });
     setQuantity(1);
@@ -434,6 +448,17 @@ function PosProductCard({
 
       {expanded && hasVariants && (
         <div className="border-t border-soft-grey p-4">
+          {isTextile ? <>
+            <TextileSelector product={product} onSkuChange={setTextileSku} />
+            <div className="my-3 flex items-center gap-2">
+              <button onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="grid h-7 w-7 place-items-center rounded border border-charcoal/20 text-charcoal/60 hover:bg-soft-grey"><Minus size={12} /></button>
+              <span className="w-5 text-center text-sm">{quantity}</span>
+              <button onClick={() => setQuantity((q) => q + 1)} className="grid h-7 w-7 place-items-center rounded border border-charcoal/20 text-charcoal/60 hover:bg-soft-grey"><Plus size={12} /></button>
+            </div>
+            <button onClick={handleAdd} disabled={!textileSku} className="flex w-full items-center justify-center gap-2 rounded-md bg-olive py-2.5 text-sm font-semibold text-white transition hover:bg-olive/90 disabled:opacity-50">
+              {textileSku ? `Add to Sale — GHS ${(textileSku.piece.price * quantity).toFixed(2)}` : "Choose fabric, colour and piece"}
+            </button>
+          </> : <>
           {variants.length > 0 && (
             <div className="mb-3">
               <div className="mb-1.5 text-xs font-medium text-charcoal/60">Choose an option</div>
@@ -495,10 +520,12 @@ function PosProductCard({
 
           <button
             onClick={handleAdd}
+            disabled={isTextile && !textileSku}
             className="flex w-full items-center justify-center gap-2 rounded-md bg-olive py-2.5 text-sm font-semibold text-white transition hover:bg-olive/90"
           >
-            Add to Sale — GHS {(finalUnitPrice * quantity).toFixed(2)}
+            {isTextile && !textileSku ? "Choose fabric, colour and piece" : `Add to Sale — GHS ${((isTextile ? textileSku!.piece.price : finalUnitPrice) * quantity).toFixed(2)}`}
           </button>
+          </>}
         </div>
       )}
     </div>

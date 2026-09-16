@@ -8,6 +8,9 @@ import {
   computeUnitsForItem,
   computeOrderTotals,
   getDefaultProductPriceData,
+  getTextileSelection,
+  getTextileUnits,
+  hasTextileOptions,
   shouldTrackInventory,
   DELIVERY_FEES,
   ProductPriceData,
@@ -22,6 +25,41 @@ const db = admin.firestore();
 // How long a "pending payment" order holds its stock reservation before it's
 // automatically released back to available inventory.
 const RESERVATION_TTL_MINUTES = 20;
+
+function textileItemsForProduct(items: CartItemInput[], productId: string) {
+  return items.filter((item) => item.productId === productId);
+}
+
+function assertTextileAvailability(product: ProductPriceData, items: CartItemInput[]) {
+  const needed = new Map<string, number>();
+  for (const item of items) {
+    const selection = getTextileSelection(product, item.skuId);
+    if (!selection) throw new functions.https.HttpsError('failed-precondition', `"${product.name || 'An item'}" needs a valid fabric, colour and piece selected.`);
+    const key = `${selection.fabric.id}:${selection.colorway.id}`;
+    needed.set(key, (needed.get(key) || 0) + getTextileUnits(item, product));
+  }
+  for (const fabric of product.textileFabrics || []) for (const colorway of fabric.colorways) {
+    const units = needed.get(`${fabric.id}:${colorway.id}`) || 0;
+    if (units > 0 && colorway.stockUnits - (colorway.reservedUnits || 0) < units) {
+      throw new functions.https.HttpsError('resource-exhausted', `"${product.name || 'That colourway'}" no longer has enough stock available.`);
+    }
+  }
+}
+
+function changeTextileInventory(product: ProductPriceData, items: CartItemInput[], stockChange: number, reservationChange: number) {
+  const fabrics = JSON.parse(JSON.stringify(product.textileFabrics || []));
+  for (const item of items) {
+    const selection = getTextileSelection(product, item.skuId);
+    if (!selection) continue;
+    const colorway = fabrics.find((fabric: { id: string }) => fabric.id === selection.fabric.id)
+      ?.colorways.find((entry: { id: string }) => entry.id === selection.colorway.id);
+    if (!colorway) continue;
+    const units = getTextileUnits(item, product);
+    colorway.stockUnits += stockChange * units;
+    colorway.reservedUnits = Math.max(0, (colorway.reservedUnits || 0) + reservationChange * units);
+  }
+  return fabrics;
+}
 
 // Public site URL, used to link back to the storefront from SMS/email —
 // e.g. https://gyantex.com. Omit the trailing slash. Falls back to
@@ -244,9 +282,16 @@ async function finalizeOrderPayment(reference: string): Promise<{ order: Firebas
     });
 
     // 2. Finalize inventory: permanently deduct stock, release the matching reservation.
+    const finalizedTextileProducts = new Set<string>();
     productSnaps.forEach((snap, i) => {
       if (!snap.exists) return;
       const productData = snap.data() as ProductPriceData;
+      if (hasTextileOptions(productData)) {
+        if (finalizedTextileProducts.has(snap.id)) return;
+        finalizedTextileProducts.add(snap.id);
+        t.update(snap.ref, { textileFabrics: changeTextileInventory(productData, textileItemsForProduct(items, snap.id), -1, -1) });
+        return;
+      }
       if (!shouldTrackInventory(productData)) return;
       const unitsToDeduct = computeUnitsForItem(items[i]);
       t.update(snap.ref, {
@@ -345,9 +390,16 @@ async function releaseReservation(orderId: string, newStatus: 'expired' | 'faile
     const productRefs = items.map((item) => db.collection('products').doc(item.productId));
     const productSnaps = await Promise.all(productRefs.map((ref) => t.get(ref)));
 
+    const releasedTextileProducts = new Set<string>();
     productSnaps.forEach((snap, i) => {
       if (!snap.exists) return;
       const productData = snap.data() as ProductPriceData;
+      if (hasTextileOptions(productData)) {
+        if (releasedTextileProducts.has(snap.id)) return;
+        releasedTextileProducts.add(snap.id);
+        t.update(snap.ref, { textileFabrics: changeTextileInventory(productData, textileItemsForProduct(items, snap.id), 0, -1) });
+        return;
+      }
       if (!shouldTrackInventory(productData)) return;
       const units = computeUnitsForItem(items[i]);
       t.update(snap.ref, { reservedUnits: admin.firestore.FieldValue.increment(-units) });
@@ -408,6 +460,15 @@ export const initializeCheckout = functions.https.onCall(async (data) => {
         const productData = snap.exists ? snap.data() as ProductPriceData : fallbackProduct!;
         productsById[items[i].productId] = productData;
 
+        if (hasTextileOptions(productData)) {
+          // Validate once per product; the helper aggregates duplicate SKU
+          // lines before comparing against one shared colourway balance.
+          if (items.findIndex((item) => item.productId === items[i].productId) === i) {
+            assertTextileAvailability(productData, textileItemsForProduct(items, items[i].productId));
+          }
+          return;
+        }
+
         if (!shouldTrackInventory(productData)) return;
 
         const unitsNeeded = computeUnitsForItem(items[i]);
@@ -421,9 +482,16 @@ export const initializeCheckout = functions.https.onCall(async (data) => {
       });
 
       // 3. Writes — hold the reservation and create the pending order together.
+      const reservedTextileProducts = new Set<string>();
       productSnaps.forEach((snap, i) => {
         if (!snap.exists) return;
         const productData = productsById[items[i].productId];
+        if (hasTextileOptions(productData)) {
+          if (reservedTextileProducts.has(snap.id)) return;
+          reservedTextileProducts.add(snap.id);
+          t.update(snap.ref, { textileFabrics: changeTextileInventory(productData, textileItemsForProduct(items, snap.id), 0, 1) });
+          return;
+        }
         if (!shouldTrackInventory(productData)) return;
         const unitsNeeded = computeUnitsForItem(items[i]);
         t.update(snap.ref, { reservedUnits: admin.firestore.FieldValue.increment(unitsNeeded) });
@@ -966,6 +1034,12 @@ export const recordPosSale = functions.https.onCall(async (data: PosSaleInput, c
     // currently reserved by concurrent web checkouts too.
     productSnaps.forEach((snap, i) => {
       const productData = productsById[items[i].productId];
+      if (hasTextileOptions(productData)) {
+        if (items.findIndex((item) => item.productId === items[i].productId) === i) {
+          assertTextileAvailability(productData, textileItemsForProduct(items, items[i].productId));
+        }
+        return;
+      }
       if (!shouldTrackInventory(productData)) return;
       const unitsNeeded = computeUnitsForItem(items[i]);
       const available = (productData.stockUnits || 0) - (productData.reservedUnits || 0);
@@ -979,8 +1053,15 @@ export const recordPosSale = functions.https.onCall(async (data: PosSaleInput, c
 
     // 3. Writes — deduct stock immediately (payment already confirmed in
     // person, no reservation step needed) and record the order as paid.
+    const soldTextileProducts = new Set<string>();
     productSnaps.forEach((snap, i) => {
       const productData = productsById[items[i].productId];
+      if (hasTextileOptions(productData)) {
+        if (soldTextileProducts.has(snap.id)) return;
+        soldTextileProducts.add(snap.id);
+        t.update(snap.ref, { textileFabrics: changeTextileInventory(productData, textileItemsForProduct(items, snap.id), -1, 0) });
+        return;
+      }
       if (!shouldTrackInventory(productData)) return;
       const unitsNeeded = computeUnitsForItem(items[i]);
       t.update(snap.ref, { stockUnits: admin.firestore.FieldValue.increment(-unitsNeeded) });
@@ -1084,10 +1165,16 @@ export const notifyOnFulfillmentChange = onDocumentUpdated('orders/{orderId}', a
     const items: CartItemInput[] = after.items || [];
     const productRefs = items.map((item) => db.collection('products').doc(item.productId));
     const productSnaps = await Promise.all(productRefs.map((ref) => ref.get()));
+    const restoredTextileProducts = new Set<string>();
     await Promise.all(
       productSnaps.map((snap, i) => {
         if (!snap.exists) return null;
         const productData = snap.data() as ProductPriceData;
+        if (hasTextileOptions(productData)) {
+          if (restoredTextileProducts.has(snap.id)) return null;
+          restoredTextileProducts.add(snap.id);
+          return snap.ref.update({ textileFabrics: changeTextileInventory(productData, textileItemsForProduct(items, snap.id), 1, 0) });
+        }
         if (!shouldTrackInventory(productData)) return null;
         return snap.ref.update({ stockUnits: admin.firestore.FieldValue.increment(computeUnitsForItem(items[i])) });
       })

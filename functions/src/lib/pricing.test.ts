@@ -4,10 +4,37 @@ import {
   computeItemUnitPrice,
   computeOrderTotals,
   computeUnitsForItem,
+  getTextileUnits,
   getDefaultProductPriceData,
   isQuoteProduct,
   shouldTrackInventory,
 } from './pricing';
+
+const textileProduct = {
+  name: 'Memorial Print',
+  price: 0,
+  priceMode: 'quote' as const,
+  textileFabrics: [{
+    id: 'lace', name: 'Lace', colorways: [{
+      id: 'gold-blue', name: 'Gold & Blue', stockUnits: 5, reservedUnits: 1,
+      pieces: [
+        { id: 'full', label: 'Full Piece', yards: 12, price: 800 },
+        { id: 'half', label: 'Half Piece', yards: 6, price: 450 },
+      ],
+    }],
+  }],
+};
+
+test('a textile SKU requires an exact fabric, colourway and piece and uses its own price', () => {
+  const full = { productId: 'p1', skuId: 'lace:gold-blue:full', purchaseType: 'full' as const, quantity: 1 };
+  const half = { productId: 'p1', skuId: 'lace:gold-blue:half', purchaseType: 'half' as const, quantity: 2 };
+  assert.equal(isQuoteProduct(textileProduct), false);
+  assert.equal(computeItemUnitPrice(textileProduct, full.purchaseType, undefined, undefined, undefined, full.skuId), 800);
+  assert.equal(computeItemUnitPrice(textileProduct, half.purchaseType, undefined, undefined, undefined, half.skuId), 450);
+  assert.equal(getTextileUnits(full, textileProduct), 2);
+  assert.equal(getTextileUnits(half, textileProduct), 2);
+  assert.throws(() => computeItemUnitPrice(textileProduct, 'full', undefined, undefined, undefined, 'lace:gold-blue:fake'));
+});
 
 test('half piece is priced at exactly half the full-piece price for fixed products', () => {
   assert.equal(computeItemUnitPrice({ price: 100, priceMode: 'fixed' }, 'full'), 100);
