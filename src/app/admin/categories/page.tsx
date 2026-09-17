@@ -16,6 +16,7 @@ import {
 import { Pencil, Plus, Tag, Trash2, X } from "lucide-react";
 import { DEFAULT_CATEGORIES, type Category } from "@/lib/catalog";
 import { db, auth } from "@/lib/firebase";
+import { DRAFTS_COLLECTION, PUBLISHED_COLLECTION } from "@/lib/productPublishing";
 import { useToastStore } from "@/store/useToastStore";
 import { useAdminRole } from "@/hooks/useAdminRole";
 
@@ -54,13 +55,19 @@ export default function AdminCategoriesPage() {
     // — cheaper than firing a separate filtered query per category, and the
     // cost doesn't grow with how many categories exist.
     async function loadCounts() {
-      const snapshot = await getDocs(collection(db, "products"));
+      // Drafts count too — deleting a category a draft uses would strand it.
+      const snapshots = await Promise.all([
+        getDocs(collection(db, PUBLISHED_COLLECTION)),
+        getDocs(collection(db, DRAFTS_COLLECTION)),
+      ]);
       const counts: Record<string, number> = {};
-      snapshot.forEach((docSnap) => {
-        const category = docSnap.data().category as string | undefined;
-        if (!category) return;
-        counts[category] = (counts[category] || 0) + 1;
-      });
+      for (const snapshot of snapshots) {
+        snapshot.forEach((docSnap) => {
+          const category = docSnap.data().category as string | undefined;
+          if (!category) return;
+          counts[category] = (counts[category] || 0) + 1;
+        });
+      }
       setProductCounts(counts);
     }
     loadCounts();

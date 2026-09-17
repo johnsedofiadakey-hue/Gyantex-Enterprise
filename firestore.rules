@@ -19,6 +19,14 @@ service cloud.firestore {
       allow write: if isOwner();
     }
 
+    // Draft products: invisible to the public and to staff. A product lives
+    // here until the owner publishes it, which moves the document (same id)
+    // into /products in one batch. The storefront, sitemap, POS and checkout
+    // only ever read /products, so a draft can't be shown or sold.
+    match /productDrafts/{productId} {
+      allow read, write: if isOwner();
+    }
+
     match /categories/{categoryId} {
       allow read: if true;
       allow write: if isOwner();

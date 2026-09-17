@@ -12,9 +12,10 @@ import {
   query,
   serverTimestamp,
   updateDoc,
+  type DocumentData,
 } from "firebase/firestore";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
   deriveVariants,
@@ -39,9 +40,12 @@ import LocalImagePreview from "@/components/LocalImagePreview";
 import PhotoListEditor, { photoItemsFromUrls, type PhotoItem } from "@/components/PhotoListEditor";
 import { compressImageForUpload } from "@/lib/imageCompression";
 import { getColourNameMismatch } from "@/lib/colorMatch";
+import { DRAFTS_COLLECTION, moveProduct, PUBLISHED_COLLECTION } from "@/lib/productPublishing";
 
 interface Product {
   id: string;
+  /** UI-only: which collection this came from. Never written to Firestore. */
+  isDraft?: boolean;
   name: string;
   price: number;
   priceMode?: "fixed" | "quote";
@@ -120,6 +124,8 @@ const EMPTY_FORM = {
 export default function AdminProductsPage() {
   const { role } = useAdminRole();
   const [products, setProducts] = useState<Product[]>([]);
+  const [drafts, setDrafts] = useState<Product[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"all" | "published" | "drafts">("all");
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [pricingPresets, setPricingPresets] = useState<PricingPreset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -135,7 +141,16 @@ export default function AdminProductsPage() {
   const toast = useToastStore((state) => state.show);
 
   useEffect(() => {
-    const productQuery = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const draftQuery = query(collection(db, DRAFTS_COLLECTION), orderBy("createdAt", "desc"));
+    return onSnapshot(
+      draftQuery,
+      (snapshot) => setDrafts(snapshot.docs.map((d) => ({ id: d.id, ...d.data(), isDraft: true } as Product))),
+      (error) => console.error("Failed to load draft products", error)
+    );
+  }, []);
+
+  useEffect(() => {
+    const productQuery = query(collection(db, PUBLISHED_COLLECTION), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(
       productQuery,
       (snapshot) => {
@@ -267,6 +282,40 @@ export default function AdminProductsPage() {
     }
   };
 
+  // The document as stored, without the UI-only fields added on load.
+  const storedData = (product: Product): DocumentData => {
+    const data: DocumentData = { ...product };
+    delete data.id;
+    delete data.isDraft;
+    return data;
+  };
+
+  const publishProduct = async (product: Product) => {
+    try {
+      await moveProduct(product.id, storedData(product), "published");
+      toast(
+        isMarketplaceProduct(product)
+          ? `"${product.name}" is live on the shop.`
+          : `"${product.name}" is published, but has no price yet — it stays hidden on the shop until you add one.`,
+        "success"
+      );
+    } catch (error) {
+      console.error(error);
+      toast("Couldn't publish this product. Please try again.", "error");
+    }
+  };
+
+  const unpublishProduct = async (product: Product) => {
+    if (!confirm(`Hide "${product.name}" from the shop? It moves back to Drafts, where you can edit and publish it again.`)) return;
+    try {
+      await moveProduct(product.id, storedData(product), "draft");
+      toast(`"${product.name}" is hidden from the shop and saved as a draft.`, "success");
+    } catch (error) {
+      console.error(error);
+      toast("Couldn't unpublish this product. Please try again.", "error");
+    }
+  };
+
   // Uploads whichever photos in the list are new (compressed, in parallel)
   // and returns every URL in the owner's order. The random suffix keeps two
   // same-named files picked together from overwriting each other.
@@ -281,8 +330,16 @@ export default function AdminProductsPage() {
       })
     );
 
-  const handleSave = async (event: React.FormEvent) => {
+  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Which button submitted: "draft" (Save draft), "preview" (Save draft and
+    // preview), "publish" (Publish), or "live" (Save changes to a product
+    // that's already on the shop). Enter in a field uses the first button.
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    const intent = (submitter?.dataset.intent || (editing && !editing.isDraft ? "live" : "draft")) as "draft" | "preview" | "publish" | "live";
+    // Opened now, while this still counts as the owner's click — a window
+    // opened after the upload finishes would be blocked as a popup.
+    const previewWindow = intent === "preview" ? window.open("about:blank", "_blank") : null;
     if (!form.name) {
       toast("Name is required.", "error");
       return;
@@ -381,9 +438,18 @@ export default function AdminProductsPage() {
         gallery,
       };
 
+      let savedId = editing?.id;
       if (editing) {
-        await updateDoc(doc(db, "products", editing.id), payload);
-        toast("Product updated.", "success");
+        if (!editing.isDraft) {
+          await updateDoc(doc(db, PUBLISHED_COLLECTION, editing.id), { ...payload, updatedAt: serverTimestamp() });
+          toast("Changes saved — live on the shop now.", "success");
+        } else if (intent === "publish") {
+          await moveProduct(editing.id, { ...storedData(editing), ...payload }, "published");
+          toast(isQuote ? `"${form.name}" is published, but has no price yet — it stays hidden on the shop until you add one.` : `"${form.name}" is live on the shop.`, "success");
+        } else {
+          await updateDoc(doc(db, DRAFTS_COLLECTION, editing.id), { ...payload, updatedAt: serverTimestamp() });
+          toast("Draft saved — not visible on the shop yet.", "success");
+        }
 
         // Clean up any photo that was on this product before but isn't
         // referenced by the version we just saved — a replaced main photo, a
@@ -406,16 +472,29 @@ export default function AdminProductsPage() {
         const orphaned = oldUrls.filter((url) => !newUrls.has(url));
         await Promise.all(orphaned.map(deleteStorageImage));
       } else {
-        await addDoc(collection(db, "products"), {
+        const publishing = intent === "publish";
+        const created = await addDoc(collection(db, publishing ? PUBLISHED_COLLECTION : DRAFTS_COLLECTION), {
           ...payload,
           reservedUnits: 0,
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          ...(publishing ? { publishedAt: serverTimestamp() } : {}),
         });
-        toast("Product created.", "success");
+        savedId = created.id;
+        toast(
+          !publishing
+            ? "Saved as a draft — not visible on the shop yet."
+            : isQuote
+              ? `"${form.name}" is published, but has no price yet — it stays hidden on the shop until you add one.`
+              : `"${form.name}" is live on the shop.`,
+          "success"
+        );
       }
+      if (previewWindow && savedId) previewWindow.location.href = `/preview/${savedId}`;
       setShowForm(false);
     } catch (error) {
       console.error(error);
+      previewWindow?.close();
       toast("Couldn't save this product. Please try again.", "error");
     } finally {
       setSaving(false);
@@ -425,7 +504,7 @@ export default function AdminProductsPage() {
   const handleDelete = async (product: Product) => {
     if (!confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
     try {
-      await deleteDoc(doc(db, "products", product.id));
+      await deleteDoc(doc(db, product.isDraft ? DRAFTS_COLLECTION : PUBLISHED_COLLECTION, product.id));
       toast("Product deleted.", "success");
       const urls = [
         product.imageUrl,
@@ -450,6 +529,14 @@ export default function AdminProductsPage() {
     return `${product.stockUnits ?? 0} unit${product.stockUnits === 1 ? "" : "s"}`;
   };
 
+  const listedProducts =
+    statusFilter === "drafts" ? drafts : statusFilter === "published" ? products : [...drafts, ...products];
+  const statusTabs = [
+    { id: "all" as const, label: "All", count: drafts.length + products.length },
+    { id: "published" as const, label: "Live", count: products.length },
+    { id: "drafts" as const, label: "Drafts", count: drafts.length },
+  ];
+
   if (role === "staff") {
     return (
       <div className="bg-white p-12 text-center text-charcoal/50 shadow-sm">
@@ -460,8 +547,22 @@ export default function AdminProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-charcoal/60">{products.length} product{products.length === 1 ? "" : "s"}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="tablist" aria-label="Filter products by status" className="flex gap-1 rounded-md bg-white p-1 shadow-sm">
+          {statusTabs.map((tab) => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={statusFilter === tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition ${
+                statusFilter === tab.id ? "bg-charcoal text-white" : "text-charcoal/60 hover:text-charcoal"
+              }`}
+            >
+              {tab.label} <span className={statusFilter === tab.id ? "text-white/60" : "text-charcoal/40"}>{tab.count}</span>
+            </button>
+          ))}
+        </div>
         <button
           onClick={openCreate}
           className="flex items-center gap-2 rounded-md bg-olive px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-olive/90"
@@ -472,9 +573,11 @@ export default function AdminProductsPage() {
 
       {loading ? (
         <div className="bg-white p-12 text-center text-charcoal/50 shadow-sm">Loading products...</div>
-      ) : products.length === 0 ? (
+      ) : listedProducts.length === 0 ? (
         <div className="bg-white p-12 text-center text-charcoal/50 shadow-sm">
-          No live products yet. The storefront is currently using the built-in Gyantex service catalog.
+          {statusFilter === "drafts"
+            ? "No drafts. New products are saved here until you publish them."
+            : "No live products yet. The storefront is currently using the built-in Gyantex service catalog."}
         </div>
       ) : (
         <div className="overflow-hidden bg-white shadow-sm">
@@ -489,7 +592,7 @@ export default function AdminProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((product) => (
+              {listedProducts.map((product) => (
                 <tr key={product.id} className="border-b border-soft-grey last:border-0">
                   <td className="flex items-center gap-3 px-6 py-3">
                     <div className="relative h-12 w-10 overflow-hidden rounded bg-soft-grey">
@@ -499,6 +602,15 @@ export default function AdminProductsPage() {
                       <div className="flex items-center gap-1.5 font-medium">
                         {product.featured && <Star size={13} className="shrink-0 fill-olive text-olive" aria-label="Best Seller" />}
                         {product.name}
+                        {product.isDraft ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800" title="Not visible on the shop until you publish it">
+                            Draft
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700" title="Visible on the shop">
+                            Live
+                          </span>
+                        )}
                       </div>
                       {product.description && <div className="line-clamp-1 max-w-xs text-xs text-charcoal/50">{product.description}</div>}
                     </div>
@@ -506,7 +618,7 @@ export default function AdminProductsPage() {
                   <td className="px-6 py-3 text-charcoal/70">{product.category || "-"}</td>
                   <td className="px-6 py-3 font-medium">
                     {getPriceLabel(product)}
-                    {!isMarketplaceProduct(product) && (
+                    {!product.isDraft && !isMarketplaceProduct(product) && (
                       <span
                         className="ml-2 rounded-full bg-terracotta/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-terracotta"
                         title="No price set — this draft isn't visible on the public site yet"
@@ -521,7 +633,48 @@ export default function AdminProductsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-3 text-right">
-                    <div className="flex justify-end gap-3">
+                    <div className="flex items-center justify-end gap-3">
+                      {product.isDraft ? (
+                        <>
+                          <button
+                            onClick={() => publishProduct(product)}
+                            className="rounded-md bg-olive px-2.5 py-1 text-xs font-semibold text-white hover:bg-olive/90"
+                          >
+                            Publish
+                          </button>
+                          <a
+                            href={`/preview/${product.id}`}
+                            target="_blank"
+                            rel="noopener"
+                            className="text-charcoal/50 hover:text-olive"
+                            aria-label={`Preview ${product.name}`}
+                            title="Preview as customers will see it"
+                          >
+                            <Eye size={16} />
+                          </a>
+                        </>
+                      ) : (
+                        <>
+                          <a
+                            href={`/product/${product.id}`}
+                            target="_blank"
+                            rel="noopener"
+                            className="text-charcoal/50 hover:text-olive"
+                            aria-label={`View ${product.name} on the shop`}
+                            title="View on the shop"
+                          >
+                            <ExternalLink size={16} />
+                          </a>
+                          <button
+                            onClick={() => unpublishProduct(product)}
+                            className="text-charcoal/50 hover:text-terracotta"
+                            aria-label={`Unpublish ${product.name}`}
+                            title="Hide from the shop (move to Drafts)"
+                          >
+                            <EyeOff size={16} />
+                          </button>
+                        </>
+                      )}
                       <button onClick={() => openEdit(product)} className="text-charcoal/50 hover:text-olive" aria-label={`Edit ${product.name}`}>
                         <Pencil size={16} />
                       </button>
@@ -542,7 +695,16 @@ export default function AdminProductsPage() {
           <button className="absolute inset-0 bg-charcoal/40" onClick={() => setShowForm(false)} aria-label="Close" />
           <form onSubmit={handleSave} className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto bg-white p-6 shadow-xl">
             <div className="mb-6 flex items-center justify-between">
-              <h3 className="font-serif text-xl font-semibold">{editing ? "Edit Product" : "Add Product"}</h3>
+              <div>
+                <h3 className="font-serif text-xl font-semibold">{editing ? "Edit Product" : "Add Product"}</h3>
+                <p className="mt-0.5 text-xs text-charcoal/50">
+                  {!editing
+                    ? "New products are saved as drafts first — preview them, then publish when ready."
+                    : editing.isDraft
+                      ? "Draft — not visible on the shop yet."
+                      : "Live — changes you save appear on the shop straight away."}
+                </p>
+              </div>
               <button type="button" onClick={() => setShowForm(false)} className="text-charcoal/50 hover:text-charcoal" aria-label="Close form">
                 <X size={20} />
               </button>
@@ -915,13 +1077,44 @@ export default function AdminProductsPage() {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="mt-6 w-full rounded-md bg-olive py-3 font-semibold text-white transition-colors hover:bg-olive/90 disabled:opacity-70"
-            >
-              {saving ? "Saving..." : editing ? "Save Changes" : "Create Product"}
-            </button>
+            {editing && !editing.isDraft ? (
+              <button
+                type="submit"
+                data-intent="live"
+                disabled={saving}
+                className="mt-6 w-full rounded-md bg-olive py-3 font-semibold text-white transition-colors hover:bg-olive/90 disabled:opacity-70"
+              >
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+            ) : (
+              <div className="mt-6 grid gap-2 sm:grid-cols-3">
+                {/* Save draft is first so pressing Enter in a field never publishes by accident. */}
+                <button
+                  type="submit"
+                  data-intent="draft"
+                  disabled={saving}
+                  className="rounded-md border border-charcoal/20 py-3 text-sm font-semibold text-charcoal transition-colors hover:border-charcoal/40 disabled:opacity-70"
+                >
+                  {saving ? "Saving..." : "Save draft"}
+                </button>
+                <button
+                  type="submit"
+                  data-intent="preview"
+                  disabled={saving}
+                  className="flex items-center justify-center gap-2 rounded-md border border-charcoal/20 py-3 text-sm font-semibold text-charcoal transition-colors hover:border-charcoal/40 disabled:opacity-70"
+                >
+                  <Eye size={16} /> Save &amp; preview
+                </button>
+                <button
+                  type="submit"
+                  data-intent="publish"
+                  disabled={saving}
+                  className="rounded-md bg-olive py-3 text-sm font-semibold text-white transition-colors hover:bg-olive/90 disabled:opacity-70"
+                >
+                  Publish
+                </button>
+              </div>
+            )}
           </form>
         </div>
       )}
