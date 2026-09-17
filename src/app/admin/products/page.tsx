@@ -18,9 +18,11 @@ import { Pencil, Plus, Star, Trash2, Upload, X } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
   deriveVariants,
+  getColorwayImages,
   getPriceLabel,
   getSwatchStyle,
   isMarketplaceProduct,
+  MAX_PHOTOS_PER_LIST,
   normalizeCategory,
   type Category,
   type PricingPreset,
@@ -34,6 +36,7 @@ import { useToastStore } from "@/store/useToastStore";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import ProductImage from "@/components/ProductImage";
 import LocalImagePreview from "@/components/LocalImagePreview";
+import PhotoListEditor, { photoItemsFromUrls, type PhotoItem } from "@/components/PhotoListEditor";
 import { compressImageForUpload } from "@/lib/imageCompression";
 
 interface Product {
@@ -45,6 +48,7 @@ interface Product {
   unit?: string;
   category?: string;
   imageUrl?: string;
+  gallery?: string[];
   variants?: ProductVariant[];
   textileFabrics?: TextileFabric[];
   colors: string[];
@@ -121,8 +125,11 @@ export default function AdminProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [textileImageFiles, setTextileImageFiles] = useState<Record<string, File>>({});
+  // The product's own photos, and each colourway's (keyed by colourway id),
+  // as ordered lists mixing saved URLs and just-picked files. Nothing uploads
+  // until Save; the first photo of each list is its cover.
+  const [productPhotos, setProductPhotos] = useState<PhotoItem[]>([]);
+  const [textilePhotos, setTextilePhotos] = useState<Record<string, PhotoItem[]>>({});
   const [saving, setSaving] = useState(false);
   const toast = useToastStore((state) => state.show);
 
@@ -194,8 +201,8 @@ export default function AdminProductsPage() {
     // card makes the form immediately useful instead of exposing retired
     // base-price and generic-variant controls.
     setForm({ ...EMPTY_FORM, textileFabrics: [makeTextileFabric()] });
-    setImageFile(null);
-    setTextileImageFiles({});
+    setProductPhotos([]);
+    setTextilePhotos({});
     setShowForm(true);
   };
 
@@ -225,8 +232,20 @@ export default function AdminProductsPage() {
       stockUnits: String(product.stockUnits ?? ""),
       featured: product.featured || false,
     });
-    setImageFile(null);
-    setTextileImageFiles({});
+    // Product photos are its own gallery. A product saved before galleries
+    // existed may have its listing photo copied from a colourway or variant —
+    // that copy isn't treated as a separate product photo.
+    const colorwayUrls = new Set((product.textileFabrics || []).flatMap((fabric) => fabric.colorways.flatMap((colorway) => getColorwayImages(colorway))));
+    const variantUrls = new Set((product.variants || []).map((variant) => variant.image).filter(Boolean));
+    const ownPhotos = [product.imageUrl, ...(product.gallery || [])].filter(
+      (url, index, list): url is string => Boolean(url) && list.indexOf(url) === index && !colorwayUrls.has(url!) && !variantUrls.has(url!)
+    );
+    setProductPhotos(photoItemsFromUrls(ownPhotos));
+    setTextilePhotos(
+      Object.fromEntries(
+        (product.textileFabrics || []).flatMap((fabric) => fabric.colorways.map((colorway) => [colorway.id, photoItemsFromUrls(getColorwayImages(colorway))]))
+      )
+    );
     setShowForm(true);
   };
 
@@ -246,6 +265,20 @@ export default function AdminProductsPage() {
       console.warn("Couldn't clean up old product photo (non-fatal)", error);
     }
   };
+
+  // Uploads whichever photos in the list are new (compressed, in parallel)
+  // and returns every URL in the owner's order. The random suffix keeps two
+  // same-named files picked together from overwriting each other.
+  const uploadPhotoList = (photos: PhotoItem[], folder: string) =>
+    Promise.all(
+      photos.map(async (photo) => {
+        if (photo.url) return photo.url;
+        const compressed = await compressImageForUpload(photo.file!);
+        const storageRef = ref(storage, `products/${folder}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${compressed.name}`);
+        await uploadBytes(storageRef, compressed);
+        return getDownloadURL(storageRef);
+      })
+    );
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -283,17 +316,12 @@ export default function AdminProductsPage() {
       );
       const variants: ProductVariant[] = variantUploads.filter((v): v is ProductVariant => v !== null);
 
-      // The main/listing photo: a manually chosen file wins, otherwise fall
-      // back to the first variant's photo (so products with variant photos
-      // don't need a separate, redundant top-level upload), then whatever
-      // was already saved.
-      let imageUrl = variants[0]?.image || editing?.imageUrl || "";
-      if (imageFile) {
-        const compressed = await compressImageForUpload(imageFile);
-        const storageRef = ref(storage, `products/${Date.now()}_${compressed.name}`);
-        await uploadBytes(storageRef, compressed);
-        imageUrl = await getDownloadURL(storageRef);
-      }
+      // The product's own gallery; its first photo is the shop card photo.
+      // Without one, the first variant's photo stands in, and a textile
+      // collection falls back to its first colourway photo when read
+      // (normalizeCatalogProduct), so no product ever looks blank.
+      const gallery = await uploadPhotoList(productPhotos, "gallery");
+      const imageUrl = gallery[0] || variants[0]?.image || "";
 
       // A product with no price (and no priced variant) is hidden from the
       // public site entirely — the storefront is a straight marketplace now,
@@ -307,24 +335,22 @@ export default function AdminProductsPage() {
         colorways: await Promise.all(fabric.colorways
           .filter((colorway) => colorway.name.trim())
           .map(async (colorway) => {
-            let image = colorway.image;
-            const file = textileImageFiles[colorway.id];
-            if (file) {
-              const compressed = await compressImageForUpload(file);
-              const storageRef = ref(storage, `products/textile/${Date.now()}_${compressed.name}`);
-              await uploadBytes(storageRef, compressed);
-              image = await getDownloadURL(storageRef);
-            }
+            const images = await uploadPhotoList(textilePhotos[colorway.id] || [], "textile");
             const saved = {
               ...colorway,
               name: colorway.name.trim(),
               stockUnits: Math.max(0, Number(colorway.stockUnits) || 0),
               pieces: colorway.pieces.map((piece) => ({ ...piece, price: Math.max(0, Number(piece.price) || 0) })),
             };
-            // Firestore rejects `undefined` fields, and a photo the owner
-            // removed leaves `image: undefined` on the form's colourway.
-            if (image) saved.image = image;
-            else delete saved.image;
+            // `image` stays the cover for older readers; Firestore rejects
+            // `undefined`, so a colourway with no photos drops both fields.
+            if (images.length) {
+              saved.images = images;
+              saved.image = images[0];
+            } else {
+              delete saved.images;
+              delete saved.image;
+            }
             return saved;
           })),
       })))).filter((fabric) => fabric.name && fabric.colorways.length);
@@ -351,6 +377,7 @@ export default function AdminProductsPage() {
         stockUnits: trackInventory ? Math.max(0, Number(form.stockUnits) || 0) : null,
         featured: form.featured,
         imageUrl,
+        gallery,
       };
 
       if (editing) {
@@ -366,12 +393,14 @@ export default function AdminProductsPage() {
           editing.imageUrl,
           ...(editing.variants || []).map((v) => v.image),
           ...(editing.colorOptions || []).map((c) => c.image),
-          ...(editing.textileFabrics || []).flatMap((fabric) => fabric.colorways.map((colorway) => colorway.image)),
+          ...(editing.gallery || []),
+          ...(editing.textileFabrics || []).flatMap((fabric) => fabric.colorways.flatMap((colorway) => getColorwayImages(colorway))),
         ].filter(Boolean) as string[];
         const newUrls = new Set([
           imageUrl,
           ...variants.map((v) => v.image),
-          ...textileFabrics.flatMap((fabric) => fabric.colorways.map((colorway) => colorway.image)),
+          ...gallery,
+          ...textileFabrics.flatMap((fabric) => fabric.colorways.flatMap((colorway) => getColorwayImages(colorway))),
         ].filter(Boolean) as string[]);
         const orphaned = oldUrls.filter((url) => !newUrls.has(url));
         await Promise.all(orphaned.map(deleteStorageImage));
@@ -401,7 +430,8 @@ export default function AdminProductsPage() {
         product.imageUrl,
         ...(product.variants || []).map((v) => v.image),
         ...(product.colorOptions || []).map((c) => c.image),
-        ...(product.textileFabrics || []).flatMap((fabric) => fabric.colorways.map((colorway) => colorway.image)),
+        ...(product.gallery || []),
+        ...(product.textileFabrics || []).flatMap((fabric) => fabric.colorways.flatMap((colorway) => getColorwayImages(colorway))),
       ].filter(Boolean) as string[];
       await Promise.all(urls.map(deleteStorageImage));
     } catch (error) {
@@ -587,48 +617,21 @@ export default function AdminProductsPage() {
                         </div>
                         <div className="space-y-2">
                           {fabric.colorways.map((colorway, colorIndex) => (
-                            <div key={colorway.id} className="grid gap-2 rounded-md border border-charcoal/10 p-2 sm:grid-cols-[1fr_46px_46px_120px_110px_auto] sm:items-center">
+                            <div key={colorway.id} className="grid gap-2 rounded-md border border-charcoal/10 p-2 sm:grid-cols-[1fr_46px_46px_120px_auto] sm:items-center">
                               <input value={colorway.name} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, name: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} placeholder="Colourway, e.g. Black & White" className="rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
                               <input type="color" value={colorway.hex} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="First colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
                               <input type="color" value={colorway.hex2 || "#ffffff"} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex2: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="Second colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
                               <input type="number" min="0" value={colorway.stockUnits} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, stockUnits: Number(event.target.value) }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} placeholder="6-yard stock" title="Number of 6-yard units in stock" className="rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
-                              <div className="flex items-center gap-2">
-                                <label
-                                  className="relative grid h-12 w-12 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-md border border-dashed border-charcoal/30 text-charcoal/50 hover:border-olive"
-                                  title={textileImageFiles[colorway.id] || colorway.image ? "Change photo" : "Add photo"}
-                                >
-                                  {textileImageFiles[colorway.id] ? (
-                                    <LocalImagePreview file={textileImageFiles[colorway.id]} alt={`${colorway.name || "Colourway"} photo`} />
-                                  ) : colorway.image ? (
-                                    <ProductImage src={colorway.image} alt={`${colorway.name || "Colourway"} photo`} sizes="48px" className="object-cover" />
-                                  ) : (
-                                    <Upload size={15} />
-                                  )}
-                                  <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) setTextileImageFiles({ ...textileImageFiles, [colorway.id]: file }); event.target.value = ""; }} />
-                                </label>
-                                {textileImageFiles[colorway.id] || colorway.image ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      // Removes whatever is showing: a just-picked photo first
-                                      // (falling back to the saved one), then the saved photo.
-                                      if (textileImageFiles[colorway.id]) {
-                                        const nextFiles = { ...textileImageFiles };
-                                        delete nextFiles[colorway.id];
-                                        setTextileImageFiles(nextFiles);
-                                        return;
-                                      }
-                                      const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, image: undefined }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next });
-                                    }}
-                                    className="text-xs text-charcoal/50 hover:text-terracotta"
-                                  >
-                                    Remove
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-charcoal/50">Add photo</span>
-                                )}
-                              </div>
                               <button type="button" onClick={() => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors.splice(colorIndex, 1); next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} className="text-xs text-terracotta hover:underline">Remove colour</button>
+                              <div className="sm:col-span-full">
+                                <PhotoListEditor
+                                  photos={textilePhotos[colorway.id] || []}
+                                  onChange={(photos) => setTextilePhotos({ ...textilePhotos, [colorway.id]: photos })}
+                                  max={MAX_PHOTOS_PER_LIST}
+                                  label={colorway.name || "Colourway"}
+                                  size="sm"
+                                />
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -892,46 +895,17 @@ export default function AdminProductsPage() {
                 )}
               </div>}
 
-              {form.textileFabrics.length === 0 && (form.variants.length === 0 ? (
-                <div className="md:col-span-2">
-                  <label className="mb-1.5 block text-sm font-medium">Photo</label>
-                  <div className="flex items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                      <div className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-md bg-soft-grey text-charcoal/40">
-                        {imageFile ? (
-                          <LocalImagePreview file={imageFile} alt="New product photo" />
-                        ) : editing?.imageUrl ? (
-                          <ProductImage src={editing.imageUrl} alt={editing.name} sizes="80px" className="object-cover" />
-                        ) : (
-                          <Upload size={20} />
-                        )}
-                      </div>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-charcoal/80">
-                          {imageFile ? "New photo ready" : editing?.imageUrl ? "Current photo" : "Choose a photo"}
-                        </span>
-                        <span className="block truncate text-xs text-charcoal/50">
-                          {imageFile ? `${imageFile.name} — uploads when you save` : editing?.imageUrl ? "Click to replace" : "JPG or PNG from your phone or computer"}
-                        </span>
-                      </span>
-                      <input type="file" accept="image/*" className="hidden" onChange={(event) => { setImageFile(event.target.files?.[0] || null); event.target.value = ""; }} />
-                    </label>
-                    {imageFile && (
-                      <button
-                        type="button"
-                        onClick={() => setImageFile(null)}
-                        className="shrink-0 rounded-md px-2 py-1.5 text-xs text-charcoal/50 hover:bg-terracotta/10 hover:text-terracotta"
-                      >
-                        Undo
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <p className="md:col-span-2 text-xs text-charcoal/50">
-                  This product&apos;s listing photo is its first variant&apos;s photo above — no separate upload needed.
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium">Product photos</label>
+                <p className="mb-2 text-xs leading-5 text-charcoal/50">
+                  {form.textileFabrics.length > 0
+                    ? "Optional general shots, shown before a customer picks a colour. Each colourway above has its own photos. With none here, the first colourway photo is the shop card photo."
+                    : form.variants.length > 0
+                      ? "Shown alongside each variant's photo. The first is the shop card photo; with none here, the first variant's photo is used."
+                      : "The first photo is the shop card photo; customers can swipe through the rest."}
                 </p>
-              ))}
+                <PhotoListEditor photos={productPhotos} onChange={setProductPhotos} max={MAX_PHOTOS_PER_LIST} label={form.name || "Product"} />
+              </div>
             </div>
 
             <button

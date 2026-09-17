@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ChevronLeft, ChevronRight, Minus, Plus, X } from "lucide-react";
+import { Check, Minus, Plus, X } from "lucide-react";
 import {
   getDefaultVariantIndex,
+  getGalleryImages,
   getPriceLabel,
   getVariantLabel,
   getVariantSwatchStyle,
@@ -18,6 +19,7 @@ import { trackEvent } from "@/lib/analytics";
 import { useCartStore } from "@/store/useCartStore";
 import { useToastStore } from "@/store/useToastStore";
 import ProductImage from "@/components/ProductImage";
+import ProductGallery from "@/components/ProductGallery";
 import TextileSelector from "@/components/TextileSelector";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 
@@ -78,19 +80,9 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(() =>
     getDefaultVariantIndex((product.variants || []).filter(isVariantInStock))
   );
-  const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
   const [textileColorway, setTextileColorway] = useState<TextileColorway | null>(null);
-  // Jump back to the newly-picked colourway's own photo rather than leaving
-  // the customer mid-gallery on whatever they'd paged to before — adjusted
-  // during render (React's documented pattern) rather than in an effect,
-  // which would paint the old photo for a frame first.
-  const [trackedColorway, setTrackedColorway] = useState(textileColorway);
-  if (trackedColorway !== textileColorway) {
-    setTrackedColorway(textileColorway);
-    setSelectedImage(0);
-  }
 
   const variants = (product.variants || []).filter(isVariantInStock);
   const isTextile = hasTextileOptions(product);
@@ -107,11 +99,10 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const fullPiecePrice = selectedVariant?.price ?? product.price;
   const unitPrice = isTextile ? (textileSku?.piece.price || 0) : purchaseType === "half" ? fullPiecePrice / 2 : fullPiecePrice;
 
-  const variantImage = isTextile ? textileColorway?.image : selectedVariant?.image;
-  const gallery = [variantImage, product.imageUrl, ...(product.gallery || [])].filter(
-    (src, index, list): src is string => Boolean(src) && list.indexOf(src) === index
-  );
-  const image = gallery[selectedImage] || gallery[0];
+  // Picking a colourway swaps the gallery to all of that colour's photos;
+  // the cart line uses its cover.
+  const gallery = getGalleryImages(product, isTextile ? { colorway: textileColorway } : { variant: selectedVariant });
+  const image = gallery[0];
 
   const similarProducts = useMemo(
     () => allProducts.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 6),
@@ -181,53 +172,23 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
 
           <div className="flex-1 overflow-y-auto lg:contents">
             <div className="relative aspect-square bg-soft-grey lg:row-span-2 lg:aspect-auto lg:h-full">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={image}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className="absolute inset-0"
-                >
-                  <ProductImage src={image} alt={product.name} sizes="(min-width: 1024px) 50vw, (min-width: 640px) 520px, 100vw" priority className="object-cover" />
-                </motion.div>
-              </AnimatePresence>
-              {product.featured && (
-                <span className="badge-pulse absolute left-3 top-3 rounded-full bg-gold px-3 py-1 text-xs font-semibold text-charcoal">
-                  Best Seller
-                </span>
-              )}
-              {gallery.length > 1 && (
-                <>
-                  <button
-                    onClick={() => setSelectedImage((selectedImage - 1 + gallery.length) % gallery.length)}
-                    className="absolute left-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm hover:bg-white"
-                    aria-label="Previous photo"
-                  >
-                    <ChevronLeft size={18} />
-                  </button>
-                  <button
-                    onClick={() => setSelectedImage((selectedImage + 1) % gallery.length)}
-                    className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm hover:bg-white"
-                    aria-label="Next photo"
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-                    {gallery.map((src, index) => (
-                      <button
-                        key={src}
-                        onClick={() => setSelectedImage(index)}
-                        aria-label={`Photo ${index + 1}`}
-                        className={`h-1.5 rounded-full transition-all ${
-                          index === selectedImage ? "w-5 bg-white" : "w-1.5 bg-white/60"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
+              <ProductGallery
+                key={gallery.join("|")}
+                images={gallery}
+                alt={product.name}
+                sizes="(min-width: 1024px) 50vw, (min-width: 640px) 520px, 100vw"
+                priority
+                thumbnails="overlay"
+                keyboard={isDesktop}
+                className="absolute inset-0"
+                mainClassName="h-full w-full"
+              >
+                {product.featured && (
+                  <span className="badge-pulse absolute left-3 top-3 z-[1] rounded-full bg-gold px-3 py-1 text-xs font-semibold text-charcoal">
+                    Best Seller
+                  </span>
+                )}
+              </ProductGallery>
             </div>
 
             <div className="px-5 py-4 lg:col-start-2 lg:row-start-1 lg:overflow-y-auto lg:px-10 lg:pb-8 lg:pt-10">
@@ -258,10 +219,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                       return (
                         <button
                           key={index}
-                          onClick={() => {
-                            setSelectedVariantIndex(index);
-                            setSelectedImage(0);
-                          }}
+                          onClick={() => setSelectedVariantIndex(index)}
                           aria-pressed={active}
                           title={variant.price !== undefined ? `${label} — GHS ${variant.price.toFixed(2)}` : label}
                           className={`flex min-h-[40px] items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${

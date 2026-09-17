@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowLeft,
@@ -21,6 +21,7 @@ import {
 import {
   getCategoryAccent,
   getDefaultVariantIndex,
+  getGalleryImages,
   getVariantLabel,
   getVariantSwatchStyle,
   hasTextileOptions,
@@ -36,7 +37,7 @@ import BrandMark from "@/components/BrandMark";
 import CartBadge from "@/components/CartBadge";
 import Footer from "@/components/Footer";
 import KenteStripe from "@/components/KenteStripe";
-import ProductImage from "@/components/ProductImage";
+import ProductGallery from "@/components/ProductGallery";
 import CartDrawer from "@/components/CartDrawer";
 import TextileSelector from "@/components/TextileSelector";
 
@@ -50,17 +51,12 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(() =>
     getDefaultVariantIndex((initialProduct?.variants || []).filter(isVariantInStock))
   );
-  const [selectedImage, setSelectedImage] = useState(0);
   const [purchaseType, setPurchaseType] = useState<"full" | "half">("full");
   const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
   const [textileColorway, setTextileColorway] = useState<TextileColorway | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
 
   const product = initialProduct;
-  const gallery = useMemo(() => {
-    if (!product) return [];
-    return [product.imageUrl, ...(product.gallery || [])].filter((src, index, list) => src && list.indexOf(src) === index);
-  }, [product]);
 
   if (!product) {
     return (
@@ -97,7 +93,10 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   // since the server re-derives this price independently.
   const basePrice = selectedVariant?.price ?? product.price;
   const unitPrice = isTextile ? (textileSku?.piece.price || 0) : effectivePurchaseType === "half" ? basePrice / 2 : basePrice;
-  const currentImage = isTextile ? textileColorway?.image || product.imageUrl : selectedVariant?.image || gallery[selectedImage] || product.imageUrl;
+  // Picking a colourway swaps the gallery to all of that colour's photos;
+  // the cart line uses its cover.
+  const gallery = getGalleryImages(product, isTextile ? { colorway: textileColorway } : { variant: selectedVariant });
+  const currentImage = gallery[0];
 
   const buildCartItem = () => ({
     id: product.id,
@@ -152,56 +151,27 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
 
       <main className="flex-1 pb-24 md:pb-0">
         <section className="mx-auto grid max-w-7xl gap-8 px-4 py-8 md:grid-cols-[1.05fr_0.95fr] md:px-6 md:py-12 lg:gap-14">
-          <div className="space-y-3">
-            <div className="relative aspect-[4/5] overflow-hidden rounded-xl bg-soft-grey md:aspect-square">
-              <AnimatePresence>
-                <motion.div
-                  key={currentImage}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.22 }}
-                  className="absolute inset-0"
-                >
-                  <ProductImage src={currentImage} alt={product.name} sizes="(max-width: 768px) 100vw, 54vw" priority className="object-cover" />
-                </motion.div>
-              </AnimatePresence>
-              {product.featured ? (
-                <span className="badge-pulse absolute left-4 top-4 flex items-center gap-1.5 rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-charcoal">
-                  Best Seller
+          <ProductGallery
+            key={gallery.join("|")}
+            images={gallery}
+            alt={product.name}
+            sizes="(max-width: 768px) 100vw, 54vw"
+            priority
+            thumbnails="below"
+            mainClassName="aspect-[4/5] rounded-xl bg-soft-grey md:aspect-square"
+          >
+            {product.featured ? (
+              <span className="badge-pulse absolute left-4 top-4 z-[1] flex items-center gap-1.5 rounded-full bg-gold px-3 py-1.5 text-xs font-semibold text-charcoal">
+                Best Seller
+              </span>
+            ) : (
+              product.badge && (
+                <span className="absolute left-4 top-4 z-[1] rounded-full bg-charcoal px-3 py-1.5 text-xs font-semibold text-white">
+                  {product.badge}
                 </span>
-              ) : (
-                product.badge && (
-                  <span className="absolute left-4 top-4 rounded-full bg-charcoal px-3 py-1.5 text-xs font-semibold text-white">
-                    {product.badge}
-                  </span>
-                )
-              )}
-            </div>
-
-            {gallery.length > 1 && (
-              <div className="grid grid-cols-4 gap-3">
-                {gallery.slice(0, 4).map((image, index) => (
-                  <button
-                    key={image}
-                    onClick={() => setSelectedImage(index)}
-                    className={`relative aspect-square overflow-hidden rounded-xl border bg-soft-grey transition ${
-                      selectedImage === index ? "border-olive" : "border-transparent hover:border-charcoal/20"
-                    }`}
-                    aria-label={`View image ${index + 1}`}
-                  >
-                    <ProductImage
-                      src={image}
-                      alt={`${product.name} image ${index + 1}`}
-                      sizes="110px"
-                      priority={index === selectedImage}
-                      className="object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
+              )
             )}
-          </div>
+          </ProductGallery>
 
           <div className="flex flex-col">
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -260,10 +230,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
                     return (
                       <button
                         key={index}
-                        onClick={() => {
-                          setSelectedVariantIndex(index);
-                          setSelectedImage(0);
-                        }}
+                        onClick={() => setSelectedVariantIndex(index)}
                         aria-pressed={active}
                         title={variant.price !== undefined ? `${label} — GHS ${variant.price.toFixed(2)}` : label}
                         className={`flex min-h-[44px] items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition ${
@@ -399,23 +366,36 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
         )}
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-soft-grey bg-white p-3 shadow-2xl md:hidden">
-        {soldOut ? (
-          <div className="flex min-h-[48px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
-            Out of stock
-          </div>
-        ) : (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={addToCart}
-            disabled={isTextile && !textileSku}
-            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+      {/* Mobile sticky bar — like the main button, it only appears once a
+          textile collection has a full fabric/colour/piece picked, rather
+          than sitting on screen as a disabled prompt. */}
+      <AnimatePresence initial={false}>
+        {(soldOut || !isTextile || textileSku) && (
+          <motion.div
+            key="mobile-cta"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 32, stiffness: 320 }}
+            className="fixed inset-x-0 bottom-0 z-40 border-t border-soft-grey bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] shadow-2xl md:hidden"
           >
-            <ShoppingBag size={17} />
-            {isTextile && !textileSku ? "Choose your version" : "Add to Cart"}
-          </motion.button>
+            {soldOut ? (
+              <div className="flex min-h-[48px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
+                Out of stock
+              </div>
+            ) : (
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={addToCart}
+                className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-olive px-4 text-sm font-semibold text-white"
+              >
+                <ShoppingBag size={17} />
+                Add to Cart
+              </motion.button>
+            )}
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
 
       <Footer />
       <CartDrawer open={cartDrawerOpen} onOpenChange={setCartDrawerOpen} />

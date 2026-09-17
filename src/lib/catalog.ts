@@ -124,7 +124,13 @@ export interface TextileColorway {
   name: string;
   hex: string;
   hex2?: string;
+  /** Cover photo — always the first of `images` when those exist. Kept as
+   * its own field so older readers (shop card cover, POS, cart) keep working. */
   image?: string;
+  /** Every photo of this colourway, in the owner's order: folds, close-ups,
+   * drape. Absent on colourways saved before multi-photo support — read
+   * through getColorwayImages, never directly. */
+  images?: string[];
   pieces: TextilePiece[];
   /** Available six-yard units. A 12-yard full piece uses two units. */
   stockUnits: number;
@@ -162,6 +168,49 @@ export function getTextileSkus(product: Pick<CatalogProduct, "textileFabrics">):
 
 export function findTextileSku(product: Pick<CatalogProduct, "textileFabrics">, skuId?: string): TextileSku | undefined {
   return getTextileSkus(product).find((sku) => sku.id === skuId);
+}
+
+/** Most photos the admin accepts for one colourway, or for a product's own
+ * gallery — enough to show every fold without slowing the page down. */
+export const MAX_PHOTOS_PER_LIST = 8;
+
+/** A colourway's photos, cover first — including a colourway saved with
+ * just the older single `image`. */
+export function getColorwayImages(colorway: Pick<TextileColorway, "image" | "images">): string[] {
+  if (colorway.images?.length) return colorway.images;
+  return colorway.image ? [colorway.image] : [];
+}
+
+function uniqueImages(list: Array<string | undefined>): string[] {
+  return list.filter((src, index): src is string => Boolean(src) && list.indexOf(src) === index);
+}
+
+/**
+ * The photos the storefront gallery shows right now.
+ * - A colourway is picked: every photo of that colourway.
+ * - A (legacy) variant is picked: its photo, then the product's own photos.
+ * - Nothing picked yet: the product's own photos, then each colourway's
+ *   cover, so a customer can browse every colour before choosing one.
+ * The placeholder only appears when there is genuinely nothing else.
+ */
+export function getGalleryImages(
+  product: Pick<CatalogProduct, "imageUrl" | "gallery" | "textileFabrics">,
+  selection: { colorway?: TextileColorway | null; variant?: ProductVariant | null } = {}
+): string[] {
+  if (selection.colorway) {
+    const colorwayImages = getColorwayImages(selection.colorway);
+    if (colorwayImages.length) return colorwayImages;
+  }
+
+  const productImages = [product.imageUrl, ...(product.gallery || [])];
+  const colorwayCovers = (product.textileFabrics || [])
+    .filter((fabric) => fabric.active !== false)
+    .flatMap((fabric) => fabric.colorways.filter((colorway) => colorway.active !== false))
+    .map((colorway) => getColorwayImages(colorway)[0]);
+
+  const images = uniqueImages([selection.variant?.image, ...productImages, ...colorwayCovers]);
+  const real = images.filter((src) => src !== "/placeholder.svg");
+  return real.length ? real : images;
 }
 
 export function isTextileSkuInStock(sku: TextileSku): boolean {
@@ -712,7 +761,7 @@ export function normalizeCatalogProduct(id: string, data: Partial<CatalogProduct
   // A textile collection often has a photo per colourway rather than a
   // separately uploaded generic cover. Use that first available real photo
   // for the shop card, so a newly saved collection never looks blank.
-  const textileCoverImage = textileFabrics.flatMap((fabric) => fabric.colorways).find((colorway) => colorway.image)?.image;
+  const textileCoverImage = textileFabrics.flatMap((fabric) => fabric.colorways).map((colorway) => getColorwayImages(colorway)[0]).find(Boolean);
   return {
     id,
     name: data.name || fallback?.name || "Custom Textile Order",
