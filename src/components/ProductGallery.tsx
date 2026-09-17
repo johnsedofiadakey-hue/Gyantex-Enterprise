@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, type PanInfo } from "motion/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import ProductImage from "@/components/ProductImage";
@@ -16,9 +16,14 @@ interface ProductGalleryProps {
   /**
    * "overlay": thumbnails float along the bottom of the photo on desktop,
    * dots on smaller screens (the product view). "below": a thumbnail strip
-   * under the photo at every size (the full product page).
+   * under the photo at every size (the full product page). "card": dots
+   * only, with arrows that appear on hover — a shop grid card.
    */
-  thumbnails: "overlay" | "below";
+  thumbnails: "overlay" | "below" | "card";
+  /** Tapping the photo (not swiping it) — e.g. a grid card opens the product. */
+  onImageClick?: () => void;
+  /** Extra classes on each photo, e.g. a hover zoom. */
+  imageClassName?: string;
   /** Left/right arrow keys page through photos — for a view that owns the
    * whole screen, like the desktop product view. */
   keyboard?: boolean;
@@ -40,9 +45,14 @@ export default function ProductGallery({
   keyboard = false,
   className = "",
   mainClassName = "",
+  onImageClick,
+  imageClassName = "",
   children,
 }: ProductGalleryProps) {
   const [index, setIndex] = useState(0);
+  // A swipe ends with a click event too; this keeps it from also opening the product.
+  const draggedRef = useRef(false);
+  const isCard = thumbnails === "card";
   // +1 when moving forward, -1 back — the photo slides in from that side.
   const [direction, setDirection] = useState(1);
   const count = images.length;
@@ -105,6 +115,14 @@ export default function ProductGallery({
   return (
     <div className={className}>
       <div className={`relative overflow-hidden ${mainClassName}`}>
+        {/* The next photo, loaded invisibly ahead of time (still lazily, so
+            only for galleries near the screen) — swiping to it is then
+            instant instead of waiting on the download. */}
+        {count > 1 && (
+          <div aria-hidden className="pointer-events-none absolute inset-0 opacity-0">
+            <ProductImage src={images[(index + 1) % count]} alt="" sizes={sizes} className="object-cover" />
+          </div>
+        )}
         <AnimatePresence initial={false} custom={direction}>
           <motion.div
             key={current}
@@ -116,13 +134,22 @@ export default function ProductGallery({
             drag={count > 1 ? "x" : false}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={0.18}
+            onPointerDown={() => {
+              draggedRef.current = false;
+            }}
+            onDragStart={() => {
+              draggedRef.current = true;
+            }}
             onDragEnd={onDragEnd}
-            className={`absolute inset-0 ${count > 1 ? "cursor-grab touch-pan-y active:cursor-grabbing" : ""}`}
+            onClick={() => {
+              if (!draggedRef.current) onImageClick?.();
+            }}
+            className={`absolute inset-0 ${onImageClick ? "cursor-pointer" : count > 1 ? "cursor-grab active:cursor-grabbing" : ""} ${count > 1 ? "touch-pan-y" : ""}`}
           >
             {/* The photo ignores the pointer so a desktop drag moves the
                 gallery instead of starting the browser's image drag. */}
             <div className="pointer-events-none absolute inset-0">
-              <ProductImage src={current} alt={count > 1 ? `${alt} — photo ${index + 1} of ${count}` : alt} sizes={sizes} priority={priority} className="object-cover" />
+              <ProductImage src={current} alt={count > 1 ? `${alt} — photo ${index + 1} of ${count}` : alt} sizes={sizes} priority={priority} className={`object-cover ${imageClassName}`} />
             </div>
           </motion.div>
         </AnimatePresence>
@@ -134,19 +161,38 @@ export default function ProductGallery({
             <button
               type="button"
               onClick={() => goTo(index - 1)}
-              className="absolute left-2 top-1/2 z-[1] grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm transition hover:bg-white lg:left-4 lg:h-11 lg:w-11"
+              className={
+                isCard
+                  ? "absolute left-2 top-1/2 z-[1] hidden h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal opacity-0 shadow-sm transition hover:bg-white focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:grid"
+                  : "absolute left-2 top-1/2 z-[1] grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm transition hover:bg-white lg:left-4 lg:h-11 lg:w-11"
+              }
               aria-label="Previous photo"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={isCard ? 16 : 18} />
             </button>
             <button
               type="button"
               onClick={() => goTo(index + 1)}
-              className="absolute right-2 top-1/2 z-[1] grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm transition hover:bg-white lg:right-4 lg:h-11 lg:w-11"
+              className={
+                isCard
+                  ? "absolute right-2 top-1/2 z-[1] hidden h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal opacity-0 shadow-sm transition hover:bg-white focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:grid"
+                  : "absolute right-2 top-1/2 z-[1] grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm transition hover:bg-white lg:right-4 lg:h-11 lg:w-11"
+              }
               aria-label="Next photo"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={isCard ? 16 : 18} />
             </button>
+
+            {isCard && (
+              <div className="pointer-events-none absolute bottom-2.5 left-1/2 z-[1] flex -translate-x-1/2 gap-1.5 rounded-full bg-charcoal/25 px-2 py-1 backdrop-blur-sm">
+                {images.map((src, dotIndex) => (
+                  <span
+                    key={src}
+                    className={`h-1.5 rounded-full transition-all ${dotIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/60"}`}
+                  />
+                ))}
+              </div>
+            )}
 
             {thumbnails === "overlay" && (
               <>
@@ -167,9 +213,11 @@ export default function ProductGallery({
               </>
             )}
 
-            <div className="absolute bottom-2 right-3 z-[1] rounded-full bg-charcoal/55 px-2 py-0.5 text-[11px] font-medium text-white lg:hidden">
-              {index + 1} / {count}
-            </div>
+            {!isCard && (
+              <div className="absolute bottom-2 right-3 z-[1] rounded-full bg-charcoal/55 px-2 py-0.5 text-[11px] font-medium text-white lg:hidden">
+                {index + 1} / {count}
+              </div>
+            )}
           </>
         )}
       </div>

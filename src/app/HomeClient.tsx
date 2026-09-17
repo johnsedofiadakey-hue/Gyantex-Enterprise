@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Package, Search, ShoppingBag, Star } from "lucide-react";
-import { type CatalogProduct, getPriceLabel, normalizeSearchText } from "@/lib/catalog";
+import { type CatalogProduct, getGalleryImages, getPriceLabel, normalizeSearchText } from "@/lib/catalog";
 import BrandMark from "@/components/BrandMark";
 import CartBadge from "@/components/CartBadge";
 import Footer from "@/components/Footer";
-import ProductImage from "@/components/ProductImage";
+import ProductGallery from "@/components/ProductGallery";
 import CartDrawer from "@/components/CartDrawer";
 import ProductDrawer from "@/components/ProductDrawer";
 import KenteStripe from "@/components/KenteStripe";
@@ -111,22 +111,25 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
                     whileHover={{ y: -4 }}
                     className="group flex h-full flex-col"
                   >
-                    <button
-                      onClick={() => setDrawerProduct(product)}
-                      className="relative block aspect-square overflow-hidden rounded-2xl bg-soft-grey text-left"
+                    {/* Swipe (or hover arrows on desktop) through every photo —
+                        the product's own and each colour's — right on the card;
+                        tapping the photo opens the product as before. */}
+                    <ProductGallery
+                      images={getGalleryImages(product)}
+                      alt={product.name}
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      priority={index < 4}
+                      thumbnails="card"
+                      onImageClick={() => setDrawerProduct(product)}
+                      imageClassName="transition duration-700 group-hover:scale-105"
+                      mainClassName="aspect-square rounded-2xl bg-soft-grey"
                     >
-                      <ProductImage
-                        src={product.imageUrl}
-                        alt={product.name}
-                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                        className="object-cover transition duration-700 group-hover:scale-105"
-                      />
                       {product.featured && (
-                        <span className="badge-pulse pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-1 rounded-full bg-gold px-2.5 py-1 text-[11px] font-semibold text-charcoal sm:left-3 sm:top-3 sm:px-3">
+                        <span className="badge-pulse pointer-events-none absolute left-2.5 top-2.5 z-[1] flex items-center gap-1 rounded-full bg-gold px-2.5 py-1 text-[11px] font-semibold text-charcoal sm:left-3 sm:top-3 sm:px-3">
                           <Star size={10} className="fill-charcoal" /> Best Seller
                         </span>
                       )}
-                    </button>
+                    </ProductGallery>
 
                     <div className="flex flex-1 flex-col pt-3">
                       <button onClick={() => setDrawerProduct(product)} className="text-left font-serif text-base font-semibold leading-tight hover:text-olive sm:text-lg">
