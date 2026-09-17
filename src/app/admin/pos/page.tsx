@@ -16,6 +16,7 @@ import {
   isVariantInStock,
   type TextileSku,
   normalizeCatalogProduct,
+  normalizeSearchText,
 } from "@/lib/catalog";
 import ProductImage from "@/components/ProductImage";
 import { useToastStore } from "@/store/useToastStore";
@@ -95,10 +96,10 @@ export default function AdminPosPage() {
   }, []);
 
   const visibleProducts = useMemo(() => {
-    const text = search.trim().toLowerCase();
+    const text = normalizeSearchText(search.trim());
     if (!text) return products;
     return products.filter((product) =>
-      [product.name, product.category, ...(product.tags || [])].filter(Boolean).join(" ").toLowerCase().includes(text)
+      normalizeSearchText([product.name, product.category, ...(product.tags || [])].filter(Boolean).join(" ")).includes(text)
     );
   }, [products, search]);
 

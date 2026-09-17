@@ -31,7 +31,7 @@ export default function BrandMark({
       />
       <span className="flex flex-col leading-none">
         <span
-          className={`font-serif font-bold tracking-tight ${
+          className={`brand-wordmark font-serif font-bold tracking-tight ${
             compact ? "text-xl" : "text-2xl"
           } ${tone === "dark" ? "text-white" : "text-olive"}`}
         >

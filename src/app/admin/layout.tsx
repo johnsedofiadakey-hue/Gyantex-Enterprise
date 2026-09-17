@@ -8,6 +8,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useAdminRole, type AdminRole } from "@/hooks/useAdminRole";
 import BrandMark from "@/components/BrandMark";
+import TwiCharacterBar from "@/components/TwiCharacterBar";
 
 const navItems: { name: string; href: string; icon: typeof LayoutDashboard; roles: AdminRole[] }[] = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard, roles: ["owner", "staff"] },
@@ -28,6 +29,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { loading, user, role } = useAdminRole();
 
   const isLoginPage = pathname === "/admin/login";
+
+  // Keeps the admin panel at its normal size whatever storefront text size
+  // the owner has picked — the root layout's inline script sets this before
+  // first paint on a direct visit; this covers arriving here client-side
+  // and clears it again on the way back out to the shop.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-admin", "");
+    return () => document.documentElement.removeAttribute("data-admin");
+  }, []);
 
   useEffect(() => {
     if (isLoginPage) return;
@@ -123,6 +133,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {children}
         </div>
       </main>
+      {role === "owner" && <TwiCharacterBar />}
     </div>
   );
 }

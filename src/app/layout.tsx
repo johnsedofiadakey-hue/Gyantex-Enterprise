@@ -1,17 +1,19 @@
 import type { Metadata } from "next";
 import {
   Inter,
-  Poppins,
-  Lato,
-  Playfair_Display,
-  Work_Sans,
-  Space_Grotesk,
+  Montserrat,
+  Noto_Sans,
+  Noto_Serif,
+  Onest,
   Source_Sans_3,
   Libre_Baskerville,
 } from "next/font/google";
 import "./globals.css";
 import ToastViewport from "@/components/ToastViewport";
 import BrandingProvider from "@/components/BrandingProvider";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { getBrandingStyle, type BrandSettings } from "@/lib/branding";
 import {
   BUSINESS_NAME,
   BUSINESS_TAGLINE,
@@ -23,23 +25,26 @@ import {
 // Every curated font pairing (src/lib/branding.ts's BRAND_FONT_OPTIONS) is
 // declared here so BrandingProvider can switch between them at runtime by
 // pointing --font-sans/--font-serif at a different variable. Only the
-// default pairing (Inter/Poppins) is preloaded — it's what every visitor
-// sees unless the owner has changed Admin → Settings → Branding, so eagerly
-// fetching the other 6 pairings' font files on every single page load was
-// pure wasted bandwidth on the critical path. The rest still work exactly
-// the same when actually selected — next/font self-hosts and inlines them
-// with font-display: swap regardless of preload, it's just no longer an
-// eager <link rel="preload"> for fonts almost nobody uses.
-const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
-const poppins = Poppins({ variable: "--font-poppins", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
-const lato = Lato({ variable: "--font-lato", subsets: ["latin"], weight: ["400", "700"], preload: false });
-const playfairDisplay = Playfair_Display({ variable: "--font-playfair", subsets: ["latin"], weight: ["500", "600", "700"], preload: false });
-const workSans = Work_Sans({ variable: "--font-work-sans", subsets: ["latin"], weight: ["400", "500", "600"], preload: false });
-const spaceGrotesk = Space_Grotesk({ variable: "--font-space-grotesk", subsets: ["latin"], weight: ["500", "600", "700"], preload: false });
-const sourceSans = Source_Sans_3({ variable: "--font-source-sans", subsets: ["latin"], weight: ["400", "500", "600"], preload: false });
-const libreBaskerville = Libre_Baskerville({ variable: "--font-libre-baskerville", subsets: ["latin"], weight: ["400", "700"], preload: false });
+// default pairing (Inter/Montserrat) is preloaded — it's what every visitor
+// sees unless the owner has changed Admin → Settings → Branding. The rest
+// still work when selected — next/font self-hosts them with
+// font-display: swap either way.
+//
+// Twi: product names and descriptions use Ɛ ɛ Ɔ ɔ. Those live in the
+// `latin-ext` subset, so every font loads it, and every font in this list
+// was checked to actually contain those letters. Poppins, Lato, Playfair
+// Display, Work Sans and Space Grotesk do not, and were replaced — they
+// rendered Twi letters in a mismatched fallback font. (next/font requires
+// these options as inline literals, hence the repetition.)
+const inter = Inter({ variable: "--font-inter", subsets: ["latin", "latin-ext"] });
+const montserrat = Montserrat({ variable: "--font-montserrat", subsets: ["latin", "latin-ext"], weight: ["400", "500", "600", "700"] });
+const notoSans = Noto_Sans({ variable: "--font-noto-sans", subsets: ["latin", "latin-ext"], weight: ["400", "500", "600", "700"], preload: false });
+const notoSerif = Noto_Serif({ variable: "--font-noto-serif", subsets: ["latin", "latin-ext"], weight: ["500", "600", "700"], preload: false });
+const onest = Onest({ variable: "--font-onest", subsets: ["latin", "latin-ext"], weight: ["500", "600", "700"], preload: false });
+const sourceSans = Source_Sans_3({ variable: "--font-source-sans", subsets: ["latin", "latin-ext"], weight: ["400", "500", "600"], preload: false });
+const libreBaskerville = Libre_Baskerville({ variable: "--font-libre-baskerville", subsets: ["latin", "latin-ext"], weight: ["400", "700"], preload: false });
 
-const FONT_VARIABLES = [inter, poppins, lato, playfairDisplay, workSans, spaceGrotesk, sourceSans, libreBaskerville]
+const FONT_VARIABLES = [inter, montserrat, notoSans, notoSerif, onest, sourceSans, libreBaskerville]
   .map((font) => font.variable)
   .join(" ");
 
@@ -86,16 +91,40 @@ const structuredData = {
   sameAs: [`https://www.instagram.com/${INSTAGRAM_HANDLE.replace(/^@/, "")}`],
 };
 
-export default function RootLayout({
+/** The owner's saved branding, read server-side so the first paint already
+ * uses it. Any failure falls back to the built-in defaults in globals.css —
+ * BrandingProvider still re-applies the latest values in the browser. */
+async function getBrandSettings(): Promise<BrandSettings> {
+  try {
+    const snap = await getDoc(doc(db, "settings", "branding"));
+    return snap.exists() ? (snap.data() as BrandSettings) : {};
+  } catch (error) {
+    console.error("Failed to load branding for first paint, using defaults", error);
+    return {};
+  }
+}
+
+// Runs before first paint: marks admin pages so the storefront's text-size
+// settings never apply there (see html[data-admin] in globals.css).
+const ADMIN_MARKER_SCRIPT = `if(location.pathname.indexOf("/admin")===0)document.documentElement.setAttribute("data-admin","")`;
+
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const brandSettings = await getBrandSettings();
+
   return (
     <html
       lang="en"
       className={`${FONT_VARIABLES} h-full antialiased`}
+      style={getBrandingStyle(brandSettings) as React.CSSProperties}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: ADMIN_MARKER_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col font-sans text-charcoal bg-white">
         <script
           type="application/ld+json"

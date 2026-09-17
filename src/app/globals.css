@@ -23,7 +23,7 @@
      tokens above: `@theme inline` bakes literal values into each utility
      class at build time instead. */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-poppins), ui-serif, Georgia, serif;
+  --font-serif: var(--font-montserrat), ui-serif, Georgia, serif;
 }
 
 body {
@@ -147,4 +147,39 @@ html {
 .prose-content li a {
   color: var(--color-olive);
   text-decoration: underline;
+}
+
+/* Storefront text size (Admin → Settings → Branding → Text size). Scaling
+   the root font size scales every rem-based Tailwind size and spacing
+   together, like browser zoom, so layouts stay in proportion. */
+html {
+  font-size: calc(100% * var(--site-text-scale, 1));
+}
+
+/* Heading size (Branding → Heading size): headings are everything set in
+   the heading font — product names and page titles. Tailwind's text-*
+   utilities read `var(--text-*)`, so redefining those variables here
+   scales only these elements (their literal defaults are restated, since a
+   variable can't reference itself). The GYANTEX wordmark is excluded so the
+   logo only follows the overall text size, never the extra heading boost. */
+.font-serif:not(.brand-wordmark) {
+  --text-xs: calc(0.75rem * var(--site-heading-scale, 1));
+  --text-sm: calc(0.875rem * var(--site-heading-scale, 1));
+  --text-base: calc(1rem * var(--site-heading-scale, 1));
+  --text-lg: calc(1.125rem * var(--site-heading-scale, 1));
+  --text-xl: calc(1.25rem * var(--site-heading-scale, 1));
+  --text-2xl: calc(1.5rem * var(--site-heading-scale, 1));
+  --text-3xl: calc(1.875rem * var(--site-heading-scale, 1));
+  --text-4xl: calc(2.25rem * var(--site-heading-scale, 1));
+  --text-5xl: calc(3rem * var(--site-heading-scale, 1));
+}
+
+/* The admin panel keeps its normal size whatever the storefront uses —
+   dense tables and forms shouldn't reflow because the shop's text was made
+   bigger. `data-admin` is set before first paint by the root layout's
+   inline script (and kept in sync by the admin layout); !important beats
+   the inline variables set on <html>. */
+html[data-admin] {
+  font-size: 100% !important;
+  --site-heading-scale: 1 !important;
 }

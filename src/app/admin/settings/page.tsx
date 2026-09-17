@@ -16,11 +16,18 @@ import { useAdminRole } from "@/hooks/useAdminRole";
 import {
   applyBrandColors,
   applyBrandFont,
+  applyBrandSizes,
   BRAND_COLOR_FIELDS,
   BRAND_FONT_OPTIONS,
+  BRAND_HEADING_SIZE_OPTIONS,
+  BRAND_TEXT_SIZE_OPTIONS,
   DEFAULT_BRAND_COLORS,
   DEFAULT_BRAND_FONT,
+  DEFAULT_BRAND_SIZE,
+  getBrandSizeScale,
   type BrandColors,
+  type BrandSettings,
+  type BrandSizeOption,
 } from "@/lib/branding";
 import { useToastStore } from "@/store/useToastStore";
 import { getCallableErrorMessage } from "@/lib/errors";
@@ -326,6 +333,8 @@ function PaymentsSection() {
 function BrandingSection() {
   const [colors, setColors] = useState<BrandColors>(DEFAULT_BRAND_COLORS);
   const [font, setFont] = useState<string>(DEFAULT_BRAND_FONT);
+  const [textSize, setTextSize] = useState<string>(DEFAULT_BRAND_SIZE);
+  const [headingSize, setHeadingSize] = useState<string>(DEFAULT_BRAND_SIZE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const toast = useToastStore((state) => state.show);
@@ -335,9 +344,11 @@ function BrandingSection() {
       try {
         const snap = await getDoc(doc(db, "settings", "branding"));
         if (snap.exists()) {
-          const data = snap.data() as Partial<BrandColors> & { font?: string };
+          const data = snap.data() as BrandSettings;
           setColors({ ...DEFAULT_BRAND_COLORS, ...data });
           setFont(data.font ?? DEFAULT_BRAND_FONT);
+          setTextSize(data.textSize ?? DEFAULT_BRAND_SIZE);
+          setHeadingSize(data.headingSize ?? DEFAULT_BRAND_SIZE);
         }
       } catch (error) {
         console.error("Failed to load branding", error);
@@ -351,9 +362,10 @@ function BrandingSection() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await setDoc(doc(db, "settings", "branding"), { ...colors, font });
+      await setDoc(doc(db, "settings", "branding"), { ...colors, font, textSize, headingSize });
       applyBrandColors(colors);
       applyBrandFont(font);
+      applyBrandSizes(textSize, headingSize);
       toast("Branding updated — live on the site now.", "success");
     } catch (error) {
       console.error(error);
@@ -366,7 +378,14 @@ function BrandingSection() {
   const handleReset = () => {
     setColors(DEFAULT_BRAND_COLORS);
     setFont(DEFAULT_BRAND_FONT);
+    setTextSize(DEFAULT_BRAND_SIZE);
+    setHeadingSize(DEFAULT_BRAND_SIZE);
   };
+
+  const selectedFont = BRAND_FONT_OPTIONS.find((option) => option.id === font) ?? BRAND_FONT_OPTIONS[0];
+  const textScale = getBrandSizeScale(BRAND_TEXT_SIZE_OPTIONS, textSize);
+  // Headings scale with the text size too, then by their own setting on top.
+  const headingScale = textScale * getBrandSizeScale(BRAND_HEADING_SIZE_OPTIONS, headingSize);
 
   return (
     <section className="bg-white p-6 shadow-sm">
@@ -443,6 +462,35 @@ function BrandingSection() {
             </div>
           </div>
 
+          <div>
+            <div className="mb-1 text-sm font-medium">Text Size</div>
+            <p className="mb-3 text-xs leading-5 text-charcoal/50">
+              Applies to the shop your customers see. This admin panel always stays at its normal size.
+            </p>
+            <div className="space-y-4">
+              <SizePicker label="Text size" hint="Everything on the shop — descriptions, prices, buttons" options={BRAND_TEXT_SIZE_OPTIONS} value={textSize} onChange={setTextSize} />
+              <SizePicker label="Heading size" hint="Product names and page titles" options={BRAND_HEADING_SIZE_OPTIONS} value={headingSize} onChange={setHeadingSize} />
+            </div>
+
+            {/* Rendered in px from the chosen scales: the admin panel itself is
+                exempt from the storefront text size, so rem wouldn't show it. */}
+            <div className="mt-4 rounded-md border border-charcoal/10 bg-soft-grey/60 p-4">
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-charcoal/40">Preview</div>
+              <div
+                className="font-semibold leading-tight"
+                style={{ fontFamily: `${selectedFont.serifVar}, serif`, fontSize: `${20 * headingScale}px` }}
+              >
+                Obaatan pa a ɔnim ne ma
+              </div>
+              <div className="mt-1 font-semibold" style={{ fontFamily: `${selectedFont.sansVar}, sans-serif`, fontSize: `${16 * textScale}px` }}>
+                GHS 560.00
+              </div>
+              <p className="mt-1 leading-relaxed text-charcoal/65" style={{ fontFamily: `${selectedFont.sansVar}, sans-serif`, fontSize: `${14 * textScale}px` }}>
+                Yɛn ntoma pa — full piece, 12 yards.
+              </p>
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={handleSave}
@@ -454,6 +502,46 @@ function BrandingSection() {
         </div>
       )}
     </section>
+  );
+}
+
+function SizePicker({
+  label,
+  hint,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  options: BrandSizeOption[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+        <span className="text-sm">{label}</span>
+        <span className="text-xs text-charcoal/50">{hint}</span>
+      </div>
+      <div role="radiogroup" aria-label={label} className="grid grid-cols-4 gap-1 rounded-md bg-soft-grey p-1">
+        {options.map((option, index) => (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={value === option.id}
+            onClick={() => onChange(option.id)}
+            className={`flex min-h-[40px] items-center justify-center rounded px-2 font-medium transition ${
+              value === option.id ? "bg-white text-olive shadow-sm" : "text-charcoal/60 hover:text-charcoal"
+            }`}
+            style={{ fontSize: `${12 + index * 1.5}px` }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

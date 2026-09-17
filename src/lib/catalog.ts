@@ -301,6 +301,21 @@ const LEGACY_CATEGORY_ALIASES: Record<string, string> = {
   Institutional: "Institutions",
 };
 
+/**
+ * Lower-cases text for search and folds Twi letters to their plain keyboard
+ * equivalents (ɛ→e, ɔ→o) plus any accents, so a customer typing "adepa" on
+ * an ordinary keyboard still finds "Adɛpa". Apply to both the query and the
+ * text being searched.
+ */
+export function normalizeSearchText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ɛ/g, "e")
+    .replace(/ɔ/g, "o")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 export function normalizeCategory(category: string): string {
   return LEGACY_CATEGORY_ALIASES[category] || category;
 }

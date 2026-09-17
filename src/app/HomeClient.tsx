@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Package, Search, ShoppingBag, Star } from "lucide-react";
-import { type CatalogProduct, getPriceLabel } from "@/lib/catalog";
+import { type CatalogProduct, getPriceLabel, normalizeSearchText } from "@/lib/catalog";
 import BrandMark from "@/components/BrandMark";
 import CartBadge from "@/components/CartBadge";
 import Footer from "@/components/Footer";
@@ -21,14 +21,13 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
   const [drawerProduct, setDrawerProduct] = useState<CatalogProduct | null>(null);
 
   const visibleProducts = useMemo(() => {
-    const queryText = searchQuery.trim().toLowerCase();
+    const queryText = normalizeSearchText(searchQuery.trim());
     const list = !queryText
       ? products
       : products.filter((product) => {
-          const haystack = [product.name, product.category, product.description, ...(product.tags || [])]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
+          const haystack = normalizeSearchText(
+            [product.name, product.category, product.description, ...(product.tags || [])].filter(Boolean).join(" ")
+          );
           return haystack.includes(queryText);
         });
 
