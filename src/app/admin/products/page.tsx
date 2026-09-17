@@ -20,6 +20,7 @@ import {
   DEFAULT_CATEGORIES,
   deriveVariants,
   getColorwayImages,
+  getGalleryImages,
   getPriceLabel,
   getSwatchStyle,
   isMarketplaceProduct,
@@ -520,6 +521,18 @@ export default function AdminProductsPage() {
     }
   };
 
+  // A textile collection usually has no photo of its own — its photos are on
+  // the colourways — so the list shows the same cover the shop card does.
+  const listPhoto = (product: Product) =>
+    getGalleryImages({ imageUrl: product.imageUrl || "", gallery: product.gallery, textileFabrics: product.textileFabrics })[0];
+  const photoCount = (product: Product) =>
+    new Set([
+      product.imageUrl,
+      ...(product.gallery || []),
+      ...(product.variants || []).map((variant) => variant.image),
+      ...(product.textileFabrics || []).flatMap((fabric) => fabric.colorways.flatMap((colorway) => getColorwayImages(colorway))),
+    ].filter(Boolean)).size;
+
   const stockLabel = (product: Product) => {
     if (product.textileFabrics?.length) {
       const units = product.textileFabrics.flatMap((fabric) => fabric.colorways).reduce((sum, colorway) => sum + (colorway.stockUnits || 0), 0);
@@ -595,8 +608,13 @@ export default function AdminProductsPage() {
               {listedProducts.map((product) => (
                 <tr key={product.id} className="border-b border-soft-grey last:border-0">
                   <td className="flex items-center gap-3 px-6 py-3">
-                    <div className="relative h-12 w-10 overflow-hidden rounded bg-soft-grey">
-                      <ProductImage src={product.imageUrl} alt={product.name} sizes="40px" className="object-cover" />
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-soft-grey">
+                      <ProductImage src={listPhoto(product)} alt={product.name} sizes="64px" className="object-cover" />
+                      {photoCount(product) > 1 && (
+                        <span className="absolute bottom-0.5 right-0.5 rounded bg-charcoal/70 px-1 text-[9px] font-semibold text-white">
+                          {photoCount(product)}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <div className="flex items-center gap-1.5 font-medium">
