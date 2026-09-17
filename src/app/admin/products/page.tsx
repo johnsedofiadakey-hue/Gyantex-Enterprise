@@ -33,6 +33,7 @@ import { db, storage } from "@/lib/firebase";
 import { useToastStore } from "@/store/useToastStore";
 import { useAdminRole } from "@/hooks/useAdminRole";
 import ProductImage from "@/components/ProductImage";
+import LocalImagePreview from "@/components/LocalImagePreview";
 import { compressImageForUpload } from "@/lib/imageCompression";
 
 interface Product {
@@ -314,13 +315,17 @@ export default function AdminProductsPage() {
               await uploadBytes(storageRef, compressed);
               image = await getDownloadURL(storageRef);
             }
-            return {
-            ...colorway,
-            ...(image ? { image } : {}),
-            name: colorway.name.trim(),
-            stockUnits: Math.max(0, Number(colorway.stockUnits) || 0),
-            pieces: colorway.pieces.map((piece) => ({ ...piece, price: Math.max(0, Number(piece.price) || 0) })),
+            const saved = {
+              ...colorway,
+              name: colorway.name.trim(),
+              stockUnits: Math.max(0, Number(colorway.stockUnits) || 0),
+              pieces: colorway.pieces.map((piece) => ({ ...piece, price: Math.max(0, Number(piece.price) || 0) })),
             };
+            // Firestore rejects `undefined` fields, and a photo the owner
+            // removed leaves `image: undefined` on the form's colourway.
+            if (image) saved.image = image;
+            else delete saved.image;
+            return saved;
           })),
       })))).filter((fabric) => fabric.name && fabric.colorways.length);
       const hasTextilePrice = textileFabrics.some((fabric) => fabric.colorways.some((colorway) => colorway.pieces.some((piece) => piece.price > 0)));
@@ -361,8 +366,13 @@ export default function AdminProductsPage() {
           editing.imageUrl,
           ...(editing.variants || []).map((v) => v.image),
           ...(editing.colorOptions || []).map((c) => c.image),
+          ...(editing.textileFabrics || []).flatMap((fabric) => fabric.colorways.map((colorway) => colorway.image)),
         ].filter(Boolean) as string[];
-        const newUrls = new Set([imageUrl, ...variants.map((v) => v.image)].filter(Boolean) as string[]);
+        const newUrls = new Set([
+          imageUrl,
+          ...variants.map((v) => v.image),
+          ...textileFabrics.flatMap((fabric) => fabric.colorways.map((colorway) => colorway.image)),
+        ].filter(Boolean) as string[]);
         const orphaned = oldUrls.filter((url) => !newUrls.has(url));
         await Promise.all(orphaned.map(deleteStorageImage));
       } else {
@@ -391,6 +401,7 @@ export default function AdminProductsPage() {
         product.imageUrl,
         ...(product.variants || []).map((v) => v.image),
         ...(product.colorOptions || []).map((c) => c.image),
+        ...(product.textileFabrics || []).flatMap((fabric) => fabric.colorways.map((colorway) => colorway.image)),
       ].filter(Boolean) as string[];
       await Promise.all(urls.map(deleteStorageImage));
     } catch (error) {
@@ -581,10 +592,42 @@ export default function AdminProductsPage() {
                               <input type="color" value={colorway.hex} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="First colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
                               <input type="color" value={colorway.hex2 || "#ffffff"} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex2: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="Second colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
                               <input type="number" min="0" value={colorway.stockUnits} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, stockUnits: Number(event.target.value) }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} placeholder="6-yard stock" title="Number of 6-yard units in stock" className="rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
-                              <label className="flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-charcoal/30 px-2 py-2 text-xs text-charcoal/60 hover:border-olive">
-                                <Upload size={13} /> {textileImageFiles[colorway.id]?.name || (colorway.image ? "Change photo" : "Add photo")}
-                                <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) setTextileImageFiles({ ...textileImageFiles, [colorway.id]: file }); }} />
-                              </label>
+                              <div className="flex items-center gap-2">
+                                <label
+                                  className="relative grid h-12 w-12 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-md border border-dashed border-charcoal/30 text-charcoal/50 hover:border-olive"
+                                  title={textileImageFiles[colorway.id] || colorway.image ? "Change photo" : "Add photo"}
+                                >
+                                  {textileImageFiles[colorway.id] ? (
+                                    <LocalImagePreview file={textileImageFiles[colorway.id]} alt={`${colorway.name || "Colourway"} photo`} />
+                                  ) : colorway.image ? (
+                                    <ProductImage src={colorway.image} alt={`${colorway.name || "Colourway"} photo`} sizes="48px" className="object-cover" />
+                                  ) : (
+                                    <Upload size={15} />
+                                  )}
+                                  <input type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) setTextileImageFiles({ ...textileImageFiles, [colorway.id]: file }); event.target.value = ""; }} />
+                                </label>
+                                {textileImageFiles[colorway.id] || colorway.image ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Removes whatever is showing: a just-picked photo first
+                                      // (falling back to the saved one), then the saved photo.
+                                      if (textileImageFiles[colorway.id]) {
+                                        const nextFiles = { ...textileImageFiles };
+                                        delete nextFiles[colorway.id];
+                                        setTextileImageFiles(nextFiles);
+                                        return;
+                                      }
+                                      const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, image: undefined }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next });
+                                    }}
+                                    className="text-xs text-charcoal/50 hover:text-terracotta"
+                                  >
+                                    Remove
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-charcoal/50">Add photo</span>
+                                )}
+                              </div>
                               <button type="button" onClick={() => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors.splice(colorIndex, 1); next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} className="text-xs text-terracotta hover:underline">Remove colour</button>
                             </div>
                           ))}
@@ -746,7 +789,9 @@ export default function AdminProductsPage() {
                         )}
                         <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-dashed border-charcoal/30 px-2.5 py-2 text-xs hover:border-olive/50">
                           {variant.pendingFile ? (
-                            <span className="max-w-[90px] truncate">{variant.pendingFile.name}</span>
+                            <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded">
+                              <LocalImagePreview file={variant.pendingFile} alt={variant.color || variant.size || "Variant photo"} />
+                            </div>
                           ) : variant.image ? (
                             <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded">
                               <ProductImage src={variant.image} alt={variant.color || variant.size || "Variant photo"} sizes="28px" className="object-cover" />
@@ -767,9 +812,27 @@ export default function AdminProductsPage() {
                               const next = [...form.variants];
                               next[index] = { ...next[index], pendingFile: file };
                               setForm({ ...form, variants: next });
+                              event.target.value = "";
                             }}
                           />
                         </label>
+                        {(variant.pendingFile || variant.image) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // A just-picked photo is undone first (back to the saved
+                              // one); otherwise the saved photo itself is removed.
+                              const next = [...form.variants];
+                              next[index] = variant.pendingFile
+                                ? { ...next[index], pendingFile: undefined }
+                                : { ...next[index], image: undefined };
+                              setForm({ ...form, variants: next });
+                            }}
+                            className="shrink-0 text-xs text-charcoal/50 hover:text-terracotta"
+                          >
+                            Remove photo
+                          </button>
+                        )}
                         <label
                           className="flex shrink-0 items-center gap-1.5 text-xs text-charcoal/60"
                           title="Uncheck to pull just this row from sale, e.g. it's sold out"
@@ -832,13 +895,37 @@ export default function AdminProductsPage() {
               {form.textileFabrics.length === 0 && (form.variants.length === 0 ? (
                 <div className="md:col-span-2">
                   <label className="mb-1.5 block text-sm font-medium">Photo</label>
-                  <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
-                    <Upload size={18} className="shrink-0 text-charcoal/50" />
-                    <span className="truncate text-sm text-charcoal/70">
-                      {imageFile ? imageFile.name : editing?.imageUrl ? "Replace current photo" : "Choose a photo"}
-                    </span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(event) => setImageFile(event.target.files?.[0] || null)} />
-                  </label>
+                  <div className="flex items-center gap-3 rounded-md border border-dashed border-charcoal/30 p-3 transition-colors hover:border-olive/50">
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                      <div className="relative grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-md bg-soft-grey text-charcoal/40">
+                        {imageFile ? (
+                          <LocalImagePreview file={imageFile} alt="New product photo" />
+                        ) : editing?.imageUrl ? (
+                          <ProductImage src={editing.imageUrl} alt={editing.name} sizes="80px" className="object-cover" />
+                        ) : (
+                          <Upload size={20} />
+                        )}
+                      </div>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-charcoal/80">
+                          {imageFile ? "New photo ready" : editing?.imageUrl ? "Current photo" : "Choose a photo"}
+                        </span>
+                        <span className="block truncate text-xs text-charcoal/50">
+                          {imageFile ? `${imageFile.name} — uploads when you save` : editing?.imageUrl ? "Click to replace" : "JPG or PNG from your phone or computer"}
+                        </span>
+                      </span>
+                      <input type="file" accept="image/*" className="hidden" onChange={(event) => { setImageFile(event.target.files?.[0] || null); event.target.value = ""; }} />
+                    </label>
+                    {imageFile && (
+                      <button
+                        type="button"
+                        onClick={() => setImageFile(null)}
+                        className="shrink-0 rounded-md px-2 py-1.5 text-xs text-charcoal/50 hover:bg-terracotta/10 hover:text-terracotta"
+                      >
+                        Undo
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <p className="md:col-span-2 text-xs text-charcoal/50">

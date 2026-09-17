@@ -43,7 +43,7 @@ export default function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 32, stiffness: 320 }}
-            className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-2xl"
+            className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-2xl lg:max-w-xl"
           >
             <div className="flex items-center justify-between border-b border-soft-grey px-5 py-4">
               <div className="flex items-center gap-2 font-semibold">

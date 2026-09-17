@@ -19,6 +19,7 @@ import { useCartStore } from "@/store/useCartStore";
 import { useToastStore } from "@/store/useToastStore";
 import ProductImage from "@/components/ProductImage";
 import TextileSelector from "@/components/TextileSelector";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 interface ProductDrawerProps {
   product: CatalogProduct | null;
@@ -40,6 +41,18 @@ export default function ProductDrawer({ product, allProducts, onOpenChange, onAd
     };
   }, [product]);
 
+  // Esc closes it — expected of any full-screen view on desktop. Kept apart
+  // from the scroll lock above: the parent passes an inline handler, and
+  // re-subscribing a key listener is harmless where re-toggling overflow isn't.
+  useEffect(() => {
+    if (!product) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onOpenChange(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [product, onOpenChange]);
+
   if (!product) return null;
 
   // Keyed by product id so switching products remounts this with fresh
@@ -59,6 +72,7 @@ export default function ProductDrawer({ product, allProducts, onOpenChange, onAd
 function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onSelectProduct }: { product: CatalogProduct } & Omit<ProductDrawerProps, "product">) {
   const cart = useCartStore();
   const toast = useToastStore((state) => state.show);
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const [quantity, setQuantity] = useState(1);
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(() =>
@@ -69,10 +83,14 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
   const [textileColorway, setTextileColorway] = useState<TextileColorway | null>(null);
   // Jump back to the newly-picked colourway's own photo rather than leaving
-  // the customer mid-gallery on whatever they'd paged to before.
-  useEffect(() => {
+  // the customer mid-gallery on whatever they'd paged to before — adjusted
+  // during render (React's documented pattern) rather than in an effect,
+  // which would paint the old photo for a frame first.
+  const [trackedColorway, setTrackedColorway] = useState(textileColorway);
+  if (trackedColorway !== textileColorway) {
+    setTrackedColorway(textileColorway);
     setSelectedImage(0);
-  }, [textileColorway]);
+  }
 
   const variants = (product.variants || []).filter(isVariantInStock);
   const isTextile = hasTextileOptions(product);
@@ -137,23 +155,32 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
           onClick={() => onOpenChange(false)}
           aria-label="Close"
         />
+        {/* Mobile: bottom sheet (unchanged). Tablet: right-hand panel.
+            Desktop (lg+): a large centred view — photo filling the left
+            half, choices and Add to Cart on the right — so the cloth is
+            shown at a size that actually sells it. The scroll wrapper below
+            becomes `display: contents` on desktop, letting the photo,
+            details and footer sit directly in this grid. */}
         <motion.div
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          exit={{ y: "100%" }}
-          transition={{ type: "spring", damping: 32, stiffness: 320 }}
-          className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:inset-x-auto sm:right-6 sm:bottom-6 sm:top-6 sm:max-h-none sm:w-[440px] sm:rounded-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-label={product.name}
+          initial={isDesktop ? { opacity: 0, y: 24, scale: 0.98 } : { y: "100%" }}
+          animate={isDesktop ? { opacity: 1, y: 0, scale: 1 } : { y: 0 }}
+          exit={isDesktop ? { opacity: 0, y: 24, scale: 0.98 } : { y: "100%" }}
+          transition={isDesktop ? { duration: 0.24, ease: "easeOut" } : { type: "spring", damping: 32, stiffness: 320 }}
+          className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:inset-x-auto sm:right-6 sm:bottom-6 sm:top-6 sm:max-h-none sm:w-[440px] sm:rounded-2xl md:w-[520px] lg:inset-0 lg:m-auto lg:grid lg:h-[90vh] lg:w-[min(92vw,1320px)] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto] lg:rounded-3xl"
         >
           <button
             onClick={() => onOpenChange(false)}
-            className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm hover:bg-white"
+            className="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-charcoal shadow-sm hover:bg-white lg:right-5 lg:top-5 lg:h-11 lg:w-11 lg:bg-soft-grey lg:hover:bg-charcoal/10"
             aria-label="Close"
           >
             <X size={18} />
           </button>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="relative aspect-square bg-soft-grey">
+          <div className="flex-1 overflow-y-auto lg:contents">
+            <div className="relative aspect-square bg-soft-grey lg:row-span-2 lg:aspect-auto lg:h-full">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={image}
@@ -163,7 +190,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                   transition={{ duration: 0.18 }}
                   className="absolute inset-0"
                 >
-                  <ProductImage src={image} alt={product.name} sizes="440px" priority className="object-cover" />
+                  <ProductImage src={image} alt={product.name} sizes="(min-width: 1024px) 50vw, (min-width: 640px) 520px, 100vw" priority className="object-cover" />
                 </motion.div>
               </AnimatePresence>
               {product.featured && (
@@ -203,11 +230,11 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
               )}
             </div>
 
-            <div className="px-5 py-4">
-              <div className="font-serif text-xl font-semibold leading-tight">{product.name}</div>
-              <div className="mt-1.5 text-lg font-semibold">GHS {(unitPrice * quantity).toFixed(2)}</div>
+            <div className="px-5 py-4 lg:col-start-2 lg:row-start-1 lg:overflow-y-auto lg:px-10 lg:pb-8 lg:pt-10">
+              <div className="font-serif text-xl font-semibold leading-tight lg:pr-12 lg:text-4xl">{product.name}</div>
+              <div className="mt-1.5 text-lg font-semibold lg:mt-3 lg:text-2xl">GHS {(unitPrice * quantity).toFixed(2)}</div>
               {product.description && (
-                <p className="mt-3 text-sm leading-6 text-charcoal/62">{product.description}</p>
+                <p className="mt-3 text-sm leading-6 text-charcoal/62 lg:text-base lg:leading-7">{product.description}</p>
               )}
 
               {isTextile ? (
@@ -308,7 +335,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
               {similarProducts.length > 0 && (
                 <div className="mt-6">
                   <span className="mb-2 block text-sm font-medium">You might also like</span>
-                  <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
+                  <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 lg:-mx-10 lg:px-10">
                     {similarProducts.map((similar) => (
                       <button
                         key={similar.id}
@@ -339,7 +366,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 16 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]"
+                className="border-t border-soft-grey p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] lg:col-start-2 lg:row-start-2 lg:px-10 lg:py-6"
               >
                 {soldOut ? (
                   <div className="flex min-h-[52px] w-full items-center justify-center rounded-xl border border-dashed border-charcoal/20 bg-soft-grey text-sm font-medium text-charcoal/50">
