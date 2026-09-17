@@ -1,6 +1,4 @@
-import { collection, getDocs, orderBy, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { DEFAULT_PRODUCTS, isMarketplaceProduct, normalizeCatalogProduct, type CatalogProduct } from "@/lib/catalog";
+import { getStorefrontProducts } from "@/lib/storefrontProducts";
 import HomeClient from "./HomeClient";
 
 // A cached/ISR page (even a short one) means: on low traffic, the CDN can
@@ -12,22 +10,7 @@ import HomeClient from "./HomeClient";
 // beats a caching optimization that actively undermines trust in the tool.
 export const dynamic = "force-dynamic";
 
-async function getProducts(): Promise<CatalogProduct[]> {
-  try {
-    const productQuery = query(collection(db, "products"), orderBy("createdAt", "desc"));
-    const snapshot = await getDocs(productQuery);
-    const fetchedProducts = snapshot.docs.map((doc) =>
-      normalizeCatalogProduct(doc.id, doc.data() as Partial<CatalogProduct>)
-    );
-    const marketplaceProducts = fetchedProducts.filter(isMarketplaceProduct);
-    return marketplaceProducts.length > 0 ? marketplaceProducts : DEFAULT_PRODUCTS.filter(isMarketplaceProduct);
-  } catch (error) {
-    console.error("Error fetching Gyantex catalog", error);
-    return DEFAULT_PRODUCTS.filter(isMarketplaceProduct);
-  }
-}
-
 export default async function Home() {
-  const products = await getProducts();
+  const products = await getStorefrontProducts();
   return <HomeClient initialProducts={products} />;
 }

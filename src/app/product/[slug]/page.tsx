@@ -13,6 +13,7 @@ import {
   normalizeCatalogProduct,
   type CatalogProduct,
 } from "@/lib/catalog";
+import { getStorefrontProducts } from "@/lib/storefrontProducts";
 import ProductDetailClient from "./ProductDetailClient";
 
 const SITE_URL = "https://gyantex.com";
@@ -75,11 +76,16 @@ export async function generateMetadata({
 
 export default async function ProductPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const { slug } = await params;
-  const product = await getProduct(slug);
+  const [product, allProducts, query] = await Promise.all([getProduct(slug), getStorefrontProducts(), searchParams]);
+  // ?colour=<colourway id> — set by a "More in this colour" suggestion, so
+  // the product opens with that colour already picked.
+  const initialColorwayId = typeof query.colour === "string" ? query.colour : undefined;
 
   if (!product || !isMarketplaceProduct(product)) notFound();
 
@@ -112,7 +118,7 @@ export default async function ProductPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <ProductDetailClient initialProduct={product} />
+      <ProductDetailClient initialProduct={product} allProducts={allProducts} initialColorwayId={initialColorwayId} />
     </>
   );
 }

@@ -38,6 +38,7 @@ import ProductImage from "@/components/ProductImage";
 import LocalImagePreview from "@/components/LocalImagePreview";
 import PhotoListEditor, { photoItemsFromUrls, type PhotoItem } from "@/components/PhotoListEditor";
 import { compressImageForUpload } from "@/lib/imageCompression";
+import { getColourNameMismatch } from "@/lib/colorMatch";
 
 interface Product {
   id: string;
@@ -623,6 +624,12 @@ export default function AdminProductsPage() {
                               <input type="color" value={colorway.hex2 || "#ffffff"} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, hex2: event.target.value }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} aria-label="Second colour" className="h-10 w-full rounded border border-charcoal/20 p-1" />
                               <input type="number" min="0" value={colorway.stockUnits} onChange={(event) => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors[colorIndex] = { ...colorway, stockUnits: Number(event.target.value) }; next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} placeholder="6-yard stock" title="Number of 6-yard units in stock" className="rounded-md border border-charcoal/20 p-2 text-sm outline-none focus:border-olive" />
                               <button type="button" onClick={() => { const next = [...form.textileFabrics]; const colors = [...fabric.colorways]; colors.splice(colorIndex, 1); next[fabricIndex] = { ...fabric, colorways: colors }; setForm({ ...form, textileFabrics: next }); }} className="text-xs text-terracotta hover:underline">Remove colour</button>
+                              {getColourNameMismatch(colorway) && (
+                                  <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-900 sm:col-span-full" role="note">
+                                    <span className="font-semibold">Check the colours: </span>
+                                    {getColourNameMismatch(colorway)}
+                                  </p>
+                                )}
                               <div className="sm:col-span-full">
                                 <PhotoListEditor
                                   photos={textilePhotos[colorway.id] || []}

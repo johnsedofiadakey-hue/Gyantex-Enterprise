@@ -19,6 +19,9 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
   const [searchQuery, setSearchQuery] = useState("");
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [drawerProduct, setDrawerProduct] = useState<CatalogProduct | null>(null);
+  // Set when the drawer is opened from a colour-matched suggestion, so that
+  // product opens with the matching colour already picked.
+  const [drawerColorwayId, setDrawerColorwayId] = useState<string | undefined>();
 
   const visibleProducts = useMemo(() => {
     const queryText = normalizeSearchText(searchQuery.trim());
@@ -153,12 +156,19 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
       <CartDrawer open={cartDrawerOpen} onOpenChange={setCartDrawerOpen} />
       <ProductDrawer
         product={drawerProduct}
+        initialColorwayId={drawerColorwayId}
         allProducts={products}
         onOpenChange={(open) => {
-          if (!open) setDrawerProduct(null);
+          if (!open) {
+            setDrawerProduct(null);
+            setDrawerColorwayId(undefined);
+          }
         }}
         onAdded={() => setCartDrawerOpen(true)}
-        onSelectProduct={setDrawerProduct}
+        onSelectProduct={(product, colorwayId) => {
+          setDrawerProduct(product);
+          setDrawerColorwayId(colorwayId);
+        }}
       />
     </div>
   );

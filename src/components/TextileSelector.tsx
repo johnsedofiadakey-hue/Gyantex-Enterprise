@@ -18,12 +18,20 @@ interface TextileSelectorProps {
    * caller swap the main photo to the actual cloth right away instead of
    * waiting on the full SKU, which only resolves once a piece is chosen too. */
   onColorwayChange?: (colorway: TextileColorway | null) => void;
+  /** Opens with this colourway (and its fabric) already picked — used when
+   * arriving from a "More in this colour" suggestion. */
+  initialColorwayId?: string;
 }
 
 /** A deliberately short, visual purchase sequence for textile collections. */
-export default function TextileSelector({ product, onSkuChange, onColorwayChange }: TextileSelectorProps) {
-  const [fabricId, setFabricId] = useState("");
-  const [colorwayId, setColorwayId] = useState("");
+export default function TextileSelector({ product, onSkuChange, onColorwayChange, initialColorwayId }: TextileSelectorProps) {
+  const initialFabric = initialColorwayId
+    ? (product.textileFabrics || []).find(
+        (fabric) => fabric.active !== false && fabric.colorways.some((colorway) => colorway.id === initialColorwayId && colorway.active !== false)
+      )
+    : undefined;
+  const [fabricId, setFabricId] = useState(initialFabric?.id || "");
+  const [colorwayId, setColorwayId] = useState(initialFabric ? initialColorwayId! : "");
   const [pieceId, setPieceId] = useState("");
   const fabrics = (product.textileFabrics || []).filter((fabric) => fabric.active !== false);
   const fabric = fabrics.find((item) => item.id === fabricId);

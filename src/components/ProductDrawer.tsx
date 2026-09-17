@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Minus, Plus, X } from "lucide-react";
 import {
@@ -21,6 +21,7 @@ import { useToastStore } from "@/store/useToastStore";
 import ProductImage from "@/components/ProductImage";
 import ProductGallery from "@/components/ProductGallery";
 import TextileSelector from "@/components/TextileSelector";
+import { getSuggestedProducts } from "@/lib/colorMatch";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 interface ProductDrawerProps {
@@ -31,10 +32,13 @@ interface ProductDrawerProps {
   allProducts: CatalogProduct[];
   onOpenChange: (open: boolean) => void;
   onAdded: () => void;
-  onSelectProduct: (product: CatalogProduct) => void;
+  /** Opens another product — with `colorwayId`, that colour pre-picked. */
+  onSelectProduct: (product: CatalogProduct, colorwayId?: string) => void;
+  /** Colour to pre-pick when the drawer opens, e.g. from a suggestion. */
+  initialColorwayId?: string;
 }
 
-export default function ProductDrawer({ product, allProducts, onOpenChange, onAdded, onSelectProduct }: ProductDrawerProps) {
+export default function ProductDrawer({ product, allProducts, onOpenChange, onAdded, onSelectProduct, initialColorwayId }: ProductDrawerProps) {
   useEffect(() => {
     if (!product) return;
     document.body.style.overflow = "hidden";
@@ -67,11 +71,12 @@ export default function ProductDrawer({ product, allProducts, onOpenChange, onAd
       onOpenChange={onOpenChange}
       onAdded={onAdded}
       onSelectProduct={onSelectProduct}
+      initialColorwayId={initialColorwayId}
     />
   );
 }
 
-function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onSelectProduct }: { product: CatalogProduct } & Omit<ProductDrawerProps, "product">) {
+function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onSelectProduct, initialColorwayId }: { product: CatalogProduct } & Omit<ProductDrawerProps, "product">) {
   const cart = useCartStore();
   const toast = useToastStore((state) => state.show);
   const isDesktop = useMediaQuery("(min-width: 1024px)");
@@ -104,10 +109,10 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
   const gallery = getGalleryImages(product, isTextile ? { colorway: textileColorway } : { variant: selectedVariant });
   const image = gallery[0];
 
-  const similarProducts = useMemo(
-    () => allProducts.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 6),
-    [allProducts, product.category, product.id]
-  );
+  // Once a colour is picked, suggestions switch to other products in a
+  // matching colour (see colorMatch.ts); before that, the same category.
+  const suggestions = getSuggestedProducts(allProducts, product, isTextile ? { colorway: textileColorway } : { variant: selectedVariant });
+  const selectedColourName = isTextile ? textileColorway?.name : selectedVariant?.color;
 
   const handleAdd = () => {
     cart.addItem({
@@ -199,7 +204,7 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
               )}
 
               {isTextile ? (
-                <TextileSelector product={product} onSkuChange={setTextileSku} onColorwayChange={setTextileColorway} />
+                <TextileSelector product={product} initialColorwayId={initialColorwayId} onSkuChange={setTextileSku} onColorwayChange={setTextileColorway} />
               ) : variants.length > 0 && (
                 <div className="mt-5">
                   <div className="mb-2 flex items-center justify-between">
@@ -290,21 +295,25 @@ function ProductDrawerContent({ product, allProducts, onOpenChange, onAdded, onS
                 </div>
               </div>
 
-              {similarProducts.length > 0 && (
+              {suggestions.items.length > 0 && (
                 <div className="mt-6">
-                  <span className="mb-2 block text-sm font-medium">You might also like</span>
+                  <span className="mb-2 block text-sm font-medium">
+                    {suggestions.mode === "colour" && selectedColourName ? `More in ${selectedColourName}` : "You might also like"}
+                  </span>
                   <div className="-mx-5 flex gap-3 overflow-x-auto px-5 pb-1 lg:-mx-10 lg:px-10">
-                    {similarProducts.map((similar) => (
+                    {suggestions.items.map((suggestion) => (
                       <button
-                        key={similar.id}
-                        onClick={() => onSelectProduct(similar)}
-                        className="w-28 shrink-0 text-left"
+                        key={suggestion.product.id}
+                        onClick={() => onSelectProduct(suggestion.product, suggestion.colorway?.id)}
+                        className="w-28 shrink-0 text-left lg:w-32"
                       >
                         <div className="relative aspect-square overflow-hidden rounded-lg bg-soft-grey">
-                          <ProductImage src={similar.imageUrl} alt={similar.name} sizes="112px" className="object-cover" />
+                          <ProductImage src={suggestion.image} alt={suggestion.product.name} sizes="128px" className="object-cover" />
                         </div>
-                        <div className="mt-1.5 truncate text-xs font-medium leading-tight">{similar.name}</div>
-                        <div className="text-xs text-charcoal/50">{getPriceLabel(similar)}</div>
+                        <div className="mt-1.5 truncate text-xs font-medium leading-tight">{suggestion.product.name}</div>
+                        <div className="truncate text-xs text-charcoal/50">
+                          {suggestion.colorway ? suggestion.colorway.name : getPriceLabel(suggestion.product)}
+                        </div>
                       </button>
                     ))}
                   </div>

@@ -22,6 +22,7 @@ import {
   getCategoryAccent,
   getDefaultVariantIndex,
   getGalleryImages,
+  getPriceLabel,
   getVariantLabel,
   getVariantSwatchStyle,
   hasTextileOptions,
@@ -38,12 +39,24 @@ import CartBadge from "@/components/CartBadge";
 import Footer from "@/components/Footer";
 import KenteStripe from "@/components/KenteStripe";
 import ProductGallery from "@/components/ProductGallery";
+import ProductImage from "@/components/ProductImage";
 import CartDrawer from "@/components/CartDrawer";
 import TextileSelector from "@/components/TextileSelector";
+import { getSuggestedProducts } from "@/lib/colorMatch";
 
 export type Product = CatalogProduct;
 
-export default function ProductDetailClient({ initialProduct }: { initialProduct: Product | null }) {
+export default function ProductDetailClient({
+  initialProduct,
+  allProducts = [],
+  initialColorwayId,
+}: {
+  initialProduct: Product | null;
+  /** The storefront's products, for colour-matched suggestions. */
+  allProducts?: Product[];
+  /** Colour to pre-pick, from a suggestion link (?colour=…). */
+  initialColorwayId?: string;
+}) {
   const cart = useCartStore();
   const toast = useToastStore((state) => state.show);
 
@@ -97,6 +110,10 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
   // the cart line uses its cover.
   const gallery = getGalleryImages(product, isTextile ? { colorway: textileColorway } : { variant: selectedVariant });
   const currentImage = gallery[0];
+  // Once a colour is picked, suggestions switch to other products in a
+  // matching colour (see colorMatch.ts); before that, the same category.
+  const suggestions = getSuggestedProducts(allProducts, product, isTextile ? { colorway: textileColorway } : { variant: selectedVariant });
+  const selectedColourName = isTextile ? textileColorway?.name : selectedVariant?.color;
 
   const buildCartItem = () => ({
     id: product.id,
@@ -207,7 +224,7 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
             )}
 
             {isTextile ? (
-              <TextileSelector product={product} onSkuChange={setTextileSku} onColorwayChange={setTextileColorway} />
+              <TextileSelector product={product} initialColorwayId={initialColorwayId} onSkuChange={setTextileSku} onColorwayChange={setTextileColorway} />
             ) : variants.length > 0 && (
               <div className="mt-8">
                 <div className="mb-3 flex items-center justify-between">
@@ -348,6 +365,40 @@ export default function ProductDetailClient({ initialProduct }: { initialProduct
             </div>
           </div>
         </section>
+
+        {suggestions.items.length > 0 && (
+          <section className="border-t border-soft-grey px-4 py-12 md:px-6">
+            <div className="mx-auto max-w-7xl">
+              <h2 className="mb-6 font-serif text-2xl font-semibold md:text-3xl">
+                {suggestions.mode === "colour" && selectedColourName ? `More in ${selectedColourName}` : "You might also like"}
+              </h2>
+              <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-4">
+                {suggestions.items.map((suggestion) => (
+                  <Link
+                    key={suggestion.product.id}
+                    href={`/product/${suggestion.product.id}${suggestion.colorway ? `?colour=${encodeURIComponent(suggestion.colorway.id)}` : ""}`}
+                    className="group block"
+                  >
+                    <div className="relative aspect-square overflow-hidden rounded-2xl bg-soft-grey">
+                      <ProductImage
+                        src={suggestion.image}
+                        alt={suggestion.product.name}
+                        sizes="(max-width: 1024px) 50vw, 25vw"
+                        className="object-cover transition duration-700 group-hover:scale-105"
+                      />
+                    </div>
+                    <div className="mt-3 line-clamp-2 font-serif text-base font-semibold leading-tight group-hover:text-olive">
+                      {suggestion.product.name}
+                    </div>
+                    <div className="mt-1 text-sm text-charcoal/55">
+                      {suggestion.colorway ? suggestion.colorway.name : getPriceLabel(suggestion.product)}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         {product.details?.length > 0 && (
           <section className="bg-white px-4 py-12 md:px-6">
