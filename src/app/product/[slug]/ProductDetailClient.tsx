@@ -41,6 +41,7 @@ import KenteStripe from "@/components/KenteStripe";
 import ProductGallery from "@/components/ProductGallery";
 import ProductImage from "@/components/ProductImage";
 import CartDrawer from "@/components/CartDrawer";
+import ProductDrawer from "@/components/ProductDrawer";
 import TextileSelector from "@/components/TextileSelector";
 import { getSuggestedProducts } from "@/lib/colorMatch";
 
@@ -68,6 +69,12 @@ export default function ProductDetailClient({
   const [textileSku, setTextileSku] = useState<TextileSku | null>(null);
   const [textileColorway, setTextileColorway] = useState<TextileColorway | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+  // Suggestions clicked from this page peek in a drawer on top of the page
+  // instead of navigating away — the page itself is always the implicit
+  // "bottom" of the stack, so closing every peek just reveals it again,
+  // unchanged. See src/app/HomeClient.tsx for the same pattern.
+  const [drawerStack, setDrawerStack] = useState<Array<{ product: CatalogProduct; colorwayId?: string }>>([]);
+  const topDrawerEntry = drawerStack[drawerStack.length - 1];
 
   const product = initialProduct;
 
@@ -374,10 +381,10 @@ export default function ProductDetailClient({
               </h2>
               <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-4">
                 {suggestions.items.map((suggestion) => (
-                  <Link
+                  <button
                     key={suggestion.product.id}
-                    href={`/product/${suggestion.product.id}${suggestion.colorway ? `?colour=${encodeURIComponent(suggestion.colorway.id)}` : ""}`}
-                    className="group block"
+                    onClick={() => setDrawerStack([{ product: suggestion.product, colorwayId: suggestion.colorway?.id }])}
+                    className="group block text-left"
                   >
                     <div className="relative aspect-square overflow-hidden rounded-2xl bg-soft-grey">
                       <ProductImage
@@ -393,7 +400,7 @@ export default function ProductDetailClient({
                     <div className="mt-1 text-sm text-charcoal/55">
                       {suggestion.colorway ? suggestion.colorway.name : getPriceLabel(suggestion.product)}
                     </div>
-                  </Link>
+                  </button>
                 ))}
               </div>
             </div>
@@ -450,6 +457,21 @@ export default function ProductDetailClient({
 
       <Footer />
       <CartDrawer open={cartDrawerOpen} onOpenChange={setCartDrawerOpen} />
+      <ProductDrawer
+        product={topDrawerEntry?.product ?? null}
+        initialColorwayId={topDrawerEntry?.colorwayId}
+        allProducts={allProducts}
+        onOpenChange={(open) => {
+          // Closing pops one layer — if that was the only one, the stack is
+          // now empty and the drawer disappears, revealing this page again
+          // exactly as it was; otherwise the peek underneath reappears.
+          if (!open) setDrawerStack((stack) => stack.slice(0, -1));
+        }}
+        onAdded={() => setCartDrawerOpen(true)}
+        onSelectProduct={(product, colorwayId) => {
+          setDrawerStack((stack) => [...stack, { product, colorwayId }]);
+        }}
+      />
     </div>
   );
 }

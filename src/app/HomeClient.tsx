@@ -18,10 +18,12 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
-  const [drawerProduct, setDrawerProduct] = useState<CatalogProduct | null>(null);
-  // Set when the drawer is opened from a colour-matched suggestion, so that
-  // product opens with the matching colour already picked.
-  const [drawerColorwayId, setDrawerColorwayId] = useState<string | undefined>();
+  // A stack, not a single product: picking a suggestion inside the drawer
+  // pushes onto it instead of replacing what's there, so closing that peek
+  // reveals the product you were already looking at instead of losing it.
+  // Opening fresh from the grid resets the stack to one entry.
+  const [drawerStack, setDrawerStack] = useState<Array<{ product: CatalogProduct; colorwayId?: string }>>([]);
+  const topDrawerEntry = drawerStack[drawerStack.length - 1];
 
   const visibleProducts = useMemo(() => {
     const queryText = normalizeSearchText(searchQuery.trim());
@@ -120,7 +122,7 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
                       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                       priority={index < 4}
                       thumbnails="card"
-                      onImageClick={() => setDrawerProduct(product)}
+                      onImageClick={() => setDrawerStack([{ product }])}
                       imageClassName="transition duration-700 group-hover:scale-105"
                       mainClassName="aspect-square rounded-2xl bg-soft-grey"
                     >
@@ -132,14 +134,14 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
                     </ProductGallery>
 
                     <div className="flex flex-1 flex-col pt-3">
-                      <button onClick={() => setDrawerProduct(product)} className="text-left font-serif text-base font-semibold leading-tight hover:text-olive sm:text-lg">
+                      <button onClick={() => setDrawerStack([{ product }])} className="text-left font-serif text-base font-semibold leading-tight hover:text-olive sm:text-lg">
                         {product.name}
                       </button>
 
                       <div className="mt-auto pt-2.5">
                         <div className="mb-2.5 text-sm font-semibold sm:text-base">{getPriceLabel(product)}</div>
                         <button
-                          onClick={() => setDrawerProduct(product)}
+                          onClick={() => setDrawerStack([{ product }])}
                           className="min-h-[44px] w-full rounded-xl bg-olive px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-olive/90 sm:text-sm"
                         >
                           Choose Options
@@ -158,19 +160,18 @@ export default function HomeClient({ initialProducts }: { initialProducts: Catal
       <Footer />
       <CartDrawer open={cartDrawerOpen} onOpenChange={setCartDrawerOpen} />
       <ProductDrawer
-        product={drawerProduct}
-        initialColorwayId={drawerColorwayId}
+        product={topDrawerEntry?.product ?? null}
+        initialColorwayId={topDrawerEntry?.colorwayId}
         allProducts={products}
         onOpenChange={(open) => {
-          if (!open) {
-            setDrawerProduct(null);
-            setDrawerColorwayId(undefined);
-          }
+          // Closing pops one layer — if that was the only one, the stack is
+          // now empty and the drawer disappears; otherwise the product
+          // underneath reappears (fresh state, same product).
+          if (!open) setDrawerStack((stack) => stack.slice(0, -1));
         }}
         onAdded={() => setCartDrawerOpen(true)}
         onSelectProduct={(product, colorwayId) => {
-          setDrawerProduct(product);
-          setDrawerColorwayId(colorwayId);
+          setDrawerStack((stack) => [...stack, { product, colorwayId }]);
         }}
       />
     </div>
